@@ -134,6 +134,18 @@ static int cmd_x(char *args) {
     return 0; // Indicate success
 }
 
+// 24/11/25
+// Evaluate expression
+static int cmd_p(char *args) {
+  if (args == NULL) return 0;
+
+  bool success = false;
+  int res = expr(args, &success);
+  if (success == false) printf("Invalid Expression\n");
+  else printf("> 0x%x\n", res);
+  return 0;
+}
+
 static int cmd_help(char *args);
 
 static struct {
@@ -149,7 +161,7 @@ static struct {
   { "si", "Step through <N> instructions", cmd_si},
   { "info", "Print status of program (Registers & Watchpoint)", cmd_info},
   { "x", "Scan virtual memory based on expr and length", cmd_x},
-
+  { "p", "Evaluate expression", cmd_p},
 };
 
 #define NR_CMD ARRLEN(cmd_table)
