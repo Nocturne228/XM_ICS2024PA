@@ -18,6 +18,7 @@
 #include <readline/readline.h>
 #include <readline/history.h>
 #include "sdb.h"
+#include "memory/paddr.h"
 
 static int is_batch_mode = false;
 
@@ -53,6 +54,86 @@ static int cmd_q(char *args) {
   return -1;
 }
 
+// 24/11/24
+// Single instruction execute
+// Usage: si or si <N>
+static int cmd_si(char *args) {
+  int step = 0;
+  if (args == NULL) {
+    step = 1;
+  } else {
+    sscanf(args, "%d", &step);  // scan in and parse
+  }
+  cpu_exec(step);
+  return 0;
+}
+
+// 24/11/24
+// Print Program Status
+// Usage: info r(egister) or info w(atchpoint)
+static int cmd_info(char *args) {
+  char *arg = strtok(NULL, " ");
+  if (arg == NULL) {
+    printf("Arg required: <r> or <w>\n");
+  } else if (strcmp(args, "r") == 0) {
+    isa_reg_display();
+  } else if (strcmp(args, "w") == 0) {
+    // TODO: watchpoint
+    printf("sdb_watchpoint_display() called\n");
+  } else {
+    printf("Wrong arg or number exceeds\n");
+  }
+  return 0;
+}
+
+// 24/11/24
+// Scan virtual memory
+// Usage: x N Expr
+// TODO error process (fatal when out of bound)
+static int cmd_x(char *args) {
+    if (args == NULL) {
+        printf("Error: Missing arguments. Usage: x N Expr\n");
+        return 0;
+    }
+
+    // Parse the first argument (length)
+    char* n = strtok(args, " ");
+    if (n == NULL) {
+        printf("Error: Missing the number of words to read. Usage: x N Expr\n");
+        return 0;
+    }
+    int len = 0;
+    if (sscanf(n, "%d", &len) != 1 || len <= 0) {
+        printf("Error: Invalid length '%s'. Length must be a positive integer.\n", n);
+        return 0;
+    }
+
+    // Parse the second argument (base address)
+    char* baseaddr = strtok(NULL, " ");
+    if (baseaddr == NULL) {
+        printf("Error: Missing base address. Usage: x N Expr\n");
+        return 0;
+    }
+    paddr_t addr = 0;
+    if (sscanf(baseaddr, "%x", &addr) != 1) {
+        printf("Error: Invalid base address '%s'. Please provide a valid hexadecimal address.\n", baseaddr);
+        return 0;
+    }
+
+    // Validate and read memory
+    for (int i = 0; i < len; i++) {
+        uint32_t data = paddr_read(addr, 4);
+        if (data == (uint32_t) - 1) { // Assume -1 indicates a read error
+            printf("Error: Failed to read from address 0x%x at iteration %d.\n", addr, i);
+            return 0;
+        }
+        printf("0x%x: 0x%x\n", addr, data);
+        addr += 4;
+    }
+
+    return 0; // Indicate success
+}
+
 static int cmd_help(char *args);
 
 static struct {
@@ -65,6 +146,9 @@ static struct {
   { "q", "Exit NEMU", cmd_q },
 
   /* TODO: Add more commands */
+  { "si", "Step through <N> instructions", cmd_si},
+  { "info", "Print status of program (Registers & Watchpoint)", cmd_info},
+  { "x", "Scan virtual memory based on expr and length", cmd_x},
 
 };
 
