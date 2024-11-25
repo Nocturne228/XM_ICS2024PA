@@ -25,6 +25,8 @@ static int is_batch_mode = false;
 void init_regex();
 void init_wp_pool();
 
+word_t vaddr_read(vaddr_t addr, int len);
+
 /* We use the `readline' library to provide more flexibility to read from stdin. */
 static char* rl_gets() {
   static char *line_read = NULL;
@@ -90,59 +92,45 @@ static int cmd_info(char *args) {
 // Scan virtual memory
 // Usage: x N Expr
 // TODO error process (fatal when out of bound)
-static int cmd_x(char *args) {
-    if (args == NULL) {
-        printf("Error: Missing arguments. Usage: x N Expr\n");
-        return 0;
-    }
+static int cmd_x(char *args){
+  char *cnt_str = strtok(NULL, " ");
+  if(cnt_str != NULL){
+    int cnt = atoi(cnt_str);
 
-    // Parse the first argument (length)
-    char* n = strtok(args, " ");
-    if (n == NULL) {
-        printf("Error: Missing the number of words to read. Usage: x N Expr\n");
-        return 0;
-    }
-    int len = 0;
-    if (sscanf(n, "%d", &len) != 1 || len <= 0) {
-        printf("Error: Invalid length '%s'. Length must be a positive integer.\n", n);
-        return 0;
-    }
-
-    // Parse the second argument (base address)
-    char* baseaddr = strtok(NULL, " ");
-    if (baseaddr == NULL) {
-        printf("Error: Missing base address. Usage: x N Expr\n");
-        return 0;
-    }
-    paddr_t addr = 0;
-    if (sscanf(baseaddr, "%x", &addr) != 1) {
-        printf("Error: Invalid base address '%s'. Please provide a valid hexadecimal address.\n", baseaddr);
-        return 0;
-    }
-
-    // Validate and read memory
-    for (int i = 0; i < len; i++) {
-        uint32_t data = paddr_read(addr, 4);
-        if (data == (uint32_t) - 1) { // Assume -1 indicates a read error
-            printf("Error: Failed to read from address 0x%x at iteration %d.\n", addr, i);
-            return 0;
+    char *addr_str = strtok(NULL, " ");
+    if(addr_str != NULL){
+      if(strlen(addr_str)>=2 && addr_str[0] == '0' && addr_str[1] == 'x'){
+        int addr = (int)strtol(addr_str+2,NULL,16);
+        printf("%-14s%-28s%-s\n","Address","Hexadecimal","Decimal");
+        for(int i = 0; i < cnt; ++i){
+          printf("0x%-12x0x%02x  0x%02x  0x%02x  0x%02x",(addr),vaddr_read(addr,1),vaddr_read(addr+1,1),vaddr_read(addr+2,1),vaddr_read(addr+3,1));
+          printf("\t  %04d  %04d  %04d  %04d\n",vaddr_read(addr,1),vaddr_read(addr+1,1),vaddr_read(addr+2,1),vaddr_read(addr+3,1));
+          addr += 4;
         }
-        printf("0x%x: 0x%x\n", addr, data);
-        addr += 4;
+      }
+      else
+        printf("the result of the given expression is NOT hexadecimal!");
     }
-
-    return 0; // Indicate success
+  }
+  return 0;
 }
 
 // 24/11/25
 // Evaluate expression
+// TODO: Bug fix:
+// A single number parenthesed will be treated as invalid syntax
+// Can't handle long expression
+
 static int cmd_p(char *args) {
   if (args == NULL) return 0;
 
   bool success = false;
   int res = expr(args, &success);
   if (success == false) printf("Invalid Expression\n");
-  else printf("> 0x%x\n", res);
+  else {
+        printf("%-20s%-s\n", "Decimal", "Hexadecimal");
+        printf("%-20d%#-10x\n", res, res);
+  }
   return 0;
 }
 
