@@ -109,7 +109,7 @@ static int cmd_x(char *args){
         }
       }
       else
-        printf("the result of the given expression is NOT hexadecimal!");
+        printf("the result of the given expression is NOT hexadecimal!\n");
     }
   }
   return 0;
