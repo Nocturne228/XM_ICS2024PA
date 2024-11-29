@@ -2,13 +2,13 @@
  * Copyright (c) 2014-2024 Zihao Yu, Nanjing University
  *
  * NEMU is licensed under Mulan PSL v2.
- * You can use this software according to the terms and conditions of the Mulan PSL v2.
- * You may obtain a copy of Mulan PSL v2 at:
+ * You can use this software according to the terms and conditions of the Mulan
+ *PSL v2. You may obtain a copy of Mulan PSL v2 at:
  *          http://license.coscl.org.cn/MulanPSL2
  *
- * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND,
- * EITHER EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT,
- * MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY
+ *KIND, EITHER EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO
+ *NON-INFRINGEMENT, MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
  *
  * See the Mulan PSL v2 for more details.
  ***************************************************************************************/
@@ -19,7 +19,6 @@
  * Type 'man regex' for more information about POSIX regex functions.
  */
 #include <regex.h>
-
 
 enum {
   TK_NOTYPE = 256,
@@ -37,33 +36,34 @@ enum {
   TK_LEQ,
 };
 
-// * Regular rules for possible operators and expression fragments and their corresponding precedence
+// * Regular rules for possible operators and expression fragments and their
+// corresponding precedence
 static struct rule {
   const char *regex;
   int token_type;
   int priority;
 } rules[] = {
 
-    /* 
+    /*
      * Pay attention to the precedence level of different rules.
      */
     // TODO: Add more rules.
-    {" +", TK_NOTYPE, 10}, // spaces
+    {" +", TK_NOTYPE, 10},  // spaces
     {"\\(", '(', 10},
     {"\\)", ')', 10},
     // {"\\$[$,a-z,0-9]+", TK_REG, 10},
     {"\\$(a[0-7]|t[0-6]|s[0-9]|s1[0-1]|ra|sp|gp|tp|pc)", TK_REG, 10},
     {"0x[0-9,a-f,A-F]+", TK_HEX, 10},
-    {"[0-9]+", TK_NUMBER, 10}, // number
-    {"\\+", '+', 4},           // plus
-    {"-", '-', 4},             // minus
-    {"\\*", '*', 5},           // multiply
-    {"/", '/', 5},             // divide
+    {"[0-9]+", TK_NUMBER, 10},  // number
+    {"\\+", '+', 4},            // plus
+    {"-", '-', 4},              // minus
+    {"\\*", '*', 5},            // multiply
+    {"/", '/', 5},              // divide
     {">=", TK_GEQ, 3},
     {"<=", TK_LEQ, 3},
     {"<", '<', 3},
     {">", '>', 3},
-    {"==", TK_EQ, 2}, // equal
+    {"==", TK_EQ, 2},  // equal
     {"!=", TK_NEQ, 2},
     {"&&", TK_AND, 1},
     {"\\|\\|", TK_OR, 0},
@@ -74,7 +74,7 @@ static struct rule {
 
 static regex_t re[NR_REGEX] = {};
 
-/* 
+/*
  * Rules are used for many times.
  * Therefore we compile them only once before any usage.
  */
@@ -101,7 +101,8 @@ typedef struct token {
 static Token tokens[1024] __attribute__((used)) = {};
 static int token_count __attribute__((used)) = 0;
 
-//* Iterate through the input string and try to match all the regular expression rules
+//* Iterate through the input string and try to match all the regular expression
+//rules
 static bool make_token(char *e) {
   int position = 0;
   int i;
@@ -112,12 +113,14 @@ static bool make_token(char *e) {
   while (e[position] != '\0') {
     /* Try all rules one by one. */
     for (i = 0; i < NR_REGEX; i++) {
-      if (regexec(&re[i], e + position, 1, &pmatch, 0) == 0 && pmatch.rm_so == 0) {
+      if (regexec(&re[i], e + position, 1, &pmatch, 0) == 0 &&
+          pmatch.rm_so == 0) {
         char *substr_start = e + position;
         int substr_len = pmatch.rm_eo;
 
         // Log("match rules[%d] = \"%s\" at position %d with len %d: %.*s",
-        //     i, rules[i].regex, position, substr_len, substr_len, substr_start);
+        //     i, rules[i].regex, position, substr_len, substr_len,
+        //     substr_start);
 
         position += substr_len;
 
@@ -138,8 +141,7 @@ static bool make_token(char *e) {
           case TK_HEX:
             tokens[token_count].type = rules[i].token_type;
             tokens[token_count].priority = rules[i].priority;
-            if (substr_len > 32)
-              return false;
+            if (substr_len > 32) return false;
             strncpy(tokens[token_count].str, substr_start, substr_len);
             tokens[token_count].str[substr_len] = '\0';
             token_count++;
@@ -147,8 +149,7 @@ static bool make_token(char *e) {
           case TK_REG:
             tokens[token_count].type = rules[i].token_type;
             tokens[token_count].priority = rules[i].priority;
-            if (substr_len > 32)
-              return false;
+            if (substr_len > 32) return false;
             strncpy(tokens[token_count].str, substr_start + 1, substr_len - 1);
             tokens[token_count].str[substr_len - 1] = '\0';
             token_count++;
@@ -197,11 +198,17 @@ word_t expr(char *e, bool *success) {
 
     int i;
     for (i = 0; i < token_count; i++) {
-      if (tokens[i].type == '-' && (i == 0 || (tokens[i - 1].type != TK_NUMBER && tokens[i - 1].type != TK_HEX && tokens[i - 1].type != TK_REG && tokens[i - 1].type != ')'))) {
+      if (tokens[i].type == '-' &&
+          (i == 0 ||
+           (tokens[i - 1].type != TK_NUMBER && tokens[i - 1].type != TK_HEX &&
+            tokens[i - 1].type != TK_REG && tokens[i - 1].type != ')'))) {
         tokens[i].type = TK_NEG;
         tokens[i].priority = 6;
       }
-      if (tokens[i].type == '*' && (i == 0 || (tokens[i - 1].type != TK_NUMBER && tokens[i - 1].type != TK_HEX && tokens[i - 1].type != TK_REG && tokens[i - 1].type != ')'))) {
+      if (tokens[i].type == '*' &&
+          (i == 0 ||
+           (tokens[i - 1].type != TK_NUMBER && tokens[i - 1].type != TK_HEX &&
+            tokens[i - 1].type != TK_REG && tokens[i - 1].type != ')'))) {
         tokens[i].type = TK_DEREF;
         tokens[i].priority = 6;
       }
@@ -220,8 +227,7 @@ bool check_leagel(int p, int q) {
       flag++;
     else if (tokens[i].type == ')')
       flag--;
-    if (flag < 0)
-      return false;
+    if (flag < 0) return false;
   }
   if (flag != 0)
     return false;
@@ -237,15 +243,12 @@ bool check_parentheses(int p, int q) {
   for (int i = p; i <= q; i++) {
     if (tokens[i].type == '(') {
       check++;
-    }
-    else if (tokens[i].type == ')') {
+    } else if (tokens[i].type == ')') {
       check--;
     }
-    if (check == 0 && i < q)
-      return false;
+    if (check == 0 && i < q) return false;
   }
-  if (check != 0)
-    return false;
+  if (check != 0) return false;
   return true;
 }
 
@@ -264,8 +267,7 @@ int find_dominant_op(int p, int q) {
       }
       start = i + 1;
       continue;
-    }
-    else if (tokens[start].priority <= min_priority) {
+    } else if (tokens[start].priority <= min_priority) {
       dominant_op = start;
       min_priority = tokens[start].priority;
     }
@@ -283,8 +285,7 @@ uint32_t eval(int p, int q) {
   if (p > q || check_leagel(p, q) == false) {
     /* Bad expression */
     return 0;
-  }
-  else if (p == q) {
+  } else if (p == q) {
     /* Single token.
      * For now this token should be a number.
      * Return the value of the number.
