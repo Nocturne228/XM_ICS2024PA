@@ -81,7 +81,8 @@ static int cmd_info(char *args) {
     isa_reg_display();
   } else if (strcmp(args, "w") == 0) {
     // TODO: watchpoint
-    printf("sdb_watchpoint_display() called\n");
+    // printf("sdb_watchpoint_display() called\n");
+    display_wp();
   } else {
     printf("Wrong arg or number exceeds\n");
   }
@@ -92,28 +93,29 @@ static int cmd_info(char *args) {
 // Scan virtual memory
 // Usage: x N Expr
 // TODO error process (fatal when out of bound)
-static int cmd_x(char *args){
+static int cmd_x(char *args) {
   char *cnt_str = strtok(NULL, " ");
-  if(cnt_str != NULL){
+  if (cnt_str != NULL) {
     int cnt = atoi(cnt_str);
 
     char *addr_str = strtok(NULL, " ");
-    if(addr_str != NULL){
-      if(strlen(addr_str)>=2 && addr_str[0] == '0' && addr_str[1] == 'x'){
-        int addr = (int)strtol(addr_str+2,NULL,16);
-        printf("%-14s%-28s%-s\n","Address","Hexadecimal","Decimal");
-        for(int i = 0; i < cnt; ++i){
-          printf("0x%-12x0x%02x  0x%02x  0x%02x  0x%02x",(addr),vaddr_read(addr,1),vaddr_read(addr+1,1),vaddr_read(addr+2,1),vaddr_read(addr+3,1));
-          printf("\t  %04d  %04d  %04d  %04d\n",vaddr_read(addr,1),vaddr_read(addr+1,1),vaddr_read(addr+2,1),vaddr_read(addr+3,1));
+    if (addr_str != NULL) {
+      if (strlen(addr_str) >= 2 && addr_str[0] == '0' && addr_str[1] == 'x') {
+        int addr = (int)strtol(addr_str + 2, NULL, 16);
+        printf("%-14s%-28s%-s\n", "Address", "Hexadecimal", "Decimal");
+        for (int i = 0; i < cnt; ++i) {
+          printf("0x%-12x0x%02x  0x%02x  0x%02x  0x%02x", (addr), vaddr_read(addr, 1), vaddr_read(addr + 1, 1), vaddr_read(addr + 2, 1), vaddr_read(addr + 3, 1));
+          printf("\t  %04d  %04d  %04d  %04d\n", vaddr_read(addr, 1), vaddr_read(addr + 1, 1), vaddr_read(addr + 2, 1), vaddr_read(addr + 3, 1));
           addr += 4;
         }
-      }
-      else
+      } else {
         printf("the result of the given expression is NOT hexadecimal!\n");
+      }
     }
   }
   return 0;
 }
+
 
 // 24/11/25
 // Evaluate expression
@@ -134,6 +136,21 @@ static int cmd_p(char *args) {
   return 0;
 }
 
+static int cmd_w(char *args){
+  if(args == NULL) 
+    return 0;
+  if(new_wp(args)==NULL) 
+    printf("the watch_point_pool is full!\n");
+  return 0;
+}
+
+static int cmd_d(char *args){
+  if(args == NULL) return 0;
+
+  free_wp(atoi(args));
+  return 0;
+}
+
 static int cmd_help(char *args);
 
 static struct {
@@ -150,6 +167,8 @@ static struct {
   { "info", "Print status of program (Registers & Watchpoint)", cmd_info},
   { "x", "Scan virtual memory based on expr and length", cmd_x},
   { "p", "Evaluate expression", cmd_p},
+  { "w", "Suspend program execution when the value of the expression EXPR changes", cmd_w},
+  { "d", "delete the watchpoint with sequence number n", cmd_d},
 };
 
 #define NR_CMD ARRLEN(cmd_table)
