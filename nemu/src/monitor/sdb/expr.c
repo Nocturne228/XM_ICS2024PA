@@ -187,7 +187,7 @@ static bool make_token(char *e) {
 bool check_parentheses(int p, int q);
 int find_dominant_op(int p, int q);
 uint32_t eval(int p, int q);
-bool check_leagel(int p, int q);
+bool check_legal(int p, int q);
 
 word_t expr(char *e, bool *success) {
   if (!make_token(e)) {
@@ -220,7 +220,7 @@ word_t expr(char *e, bool *success) {
   }
 }
 
-bool check_leagel(int p, int q) {
+bool check_legal(int p, int q) {
   int flag = 0;
   for (int i = p; i <= q; i++) {
     if (tokens[i].type == '(')
@@ -282,7 +282,7 @@ int find_dominant_op(int p, int q) {
 extern word_t paddr_read(paddr_t addr, int len);
 
 uint32_t eval(int p, int q) {
-  if (p > q || check_leagel(p, q) == false) {
+  if (p > q || check_legal(p, q) == false) {
     /* Bad expression */
     return 0;
   } else if (p == q) {
