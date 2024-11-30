@@ -16,9 +16,6 @@
 #include <isa.h>
 #include "local-include/reg.h"
 
-#define NR_REGS ARRLEN(regs) //sizeof(regs)/sizeof(regs[0])
-#define NR_CSRS ARRLEN(csrs) //sizeof(csrs)/sizeof(csrs[0])
-
 const char *regs[] = {
   "$0", "ra", "sp", "gp", "tp", "t0", "t1", "t2",
   "s0", "s1", "a0", "a1", "a2", "a3", "a4", "a5",
@@ -27,18 +24,8 @@ const char *regs[] = {
 };
 
 void isa_reg_display() {
-  printf("%-15s%-17s%-15s\n", "Registers", "Hexadecimal", "Decimal");
-  for(int i = 0; i < NR_REGS; ++i){
-    printf("%-15s0x%-15x%-15u\n",regs[i], cpu.gpr[i], cpu.gpr[i]);
-  }
 }
 
 word_t isa_reg_str2val(const char *s, bool *success) {
-    for(int i = 0 ; i < 32 ; i ++){
-   	if(strcmp(regs[i], s) == 0){
-		return cpu.gpr[i];
-	}
-    }
-    success = false;
-    return 0;
+  return 0;
 }
