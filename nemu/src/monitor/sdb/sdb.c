@@ -141,7 +141,7 @@ static int cmd_p(char *args) {
     printf("Invalid Expression\n");
   else {
     printf("%-20s%-s\n", "Decimal", "Hexadecimal");
-    printf("%-20d%#-10x\n", res, res);
+    printf("%-20u%#-10x\n", res, res);
   }
   return 0;
 }
