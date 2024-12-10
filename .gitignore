@@ -10,5 +10,6 @@
 !.gitignore
 !init.sh
 !/assists/**
+!/notes/*
 /fceux-am
 /am-kernels
