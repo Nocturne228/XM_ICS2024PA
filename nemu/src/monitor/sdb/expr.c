@@ -229,7 +229,7 @@ extern word_t paddr_read(paddr_t addr, int len);
 uint32_t eval(int p, int q) {
   if (p > q || check_legal(p, q) == false) {
     /* Bad expression */
-    return 0;
+    return 1;
   } else if (p == q) {
     /*
      * Single token.
@@ -283,7 +283,7 @@ uint32_t eval(int p, int q) {
       case '/':
         // TODO: Handle division by zero error
         if (val2 == 0) {
-          printf("Division by zero error!\n");
+          printf("\033[1;31mDivision by zero error!\033[0m\n");
           return -1;
         }
         return val1 / val2;
@@ -327,7 +327,6 @@ uint32_t eval(int p, int q) {
   }
 }
 
-
 bool check_legal(int p, int q) {
   int flag = 0;
   for (int i = p; i <= q; i++) {
@@ -361,25 +360,40 @@ bool check_parentheses(int p, int q) {
 }
 
 int find_dominant_op(int p, int q) {
-  int start = p;
-  int end = q;
-  int dominant_op = p;
-  int min_priority = tokens[p].priority;
-  while (start <= end) {
-    if (tokens[start].type == '(') {
-      int i;
-      for (i = start + 1; i <= end; i++) {
-        if (tokens[i].type == ')') {
-          break;
-        }
-      }
-      start = i + 1;
+  int ret = -1, par = 0, op_type = 0;
+  for (int i = p; i <= q; i++) {
+    if (tokens[i].type == TK_NUMBER) {
       continue;
-    } else if (tokens[start].priority <= min_priority) {
-      dominant_op = start;
-      min_priority = tokens[start].priority;
     }
-    start++;
+    if (tokens[i].type == '(') {
+      par++;
+    } else if (tokens[i].type == ')') {
+      if (par == 0) {
+        return -1;
+      }
+      par--;
+    } else if (par > 0) {
+      continue;
+    } else {
+      int tmp_type = 0;
+      switch (tokens[i].type) {
+        case '*':
+        case '/':
+          tmp_type = 1;
+          break;
+        case '+':
+        case '-':
+          tmp_type = 2;
+          break;
+        default:
+          assert(0);
+      }
+      if (tmp_type >= op_type) {
+        op_type = tmp_type;
+        ret = i;
+      }
+    }
   }
-  return dominant_op;
+  if (par != 0) return -1;
+  return ret;
 }

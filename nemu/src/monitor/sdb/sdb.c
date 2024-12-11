@@ -136,7 +136,7 @@ static int cmd_p(char *args) {
 
   bool success = false;
   int res = expr(args, &success);
-  printf("Received expression: %s\n", args);
+  // printf("Received expression: %s\n", args);
   if (success == false)
     printf("Invalid Expression\n");
   else {
@@ -161,7 +161,8 @@ static int cmd_d(char *args) {
 
 static int cmd_test(char *args) {
   int correct_count = 0;
-  FILE *input_file = fopen("/home/xiaoma/ics2024/nemu/tools/gen-expr/input", "r");
+  FILE *input_file =
+      fopen("/home/xiaoma/ics2024/nemu/tools/gen-expr/input", "r");
   if (input_file == NULL) {
     perror("Error opening input file");
     return 1;
@@ -197,13 +198,22 @@ static int cmd_test(char *args) {
       strcat(buf, " ");
     }
 
-    printf("Real Value: %u, Expression: %s\n", real_val, buf);
+    // printf("Real Value: %u, Expression: %s\n", real_val, buf);
     bool flag = false;
     unsigned res = expr(buf, &flag);
-    if (res == real_val)  { correct_count++; }
+    if (res == real_val) {
+      correct_count++;
+    } else {
+      printf("\033[1;32mExpression\033[0m: %s\n\033[1;31mGot\033[0m: %u, \033[1;31mexpected\033[0m: %u\n\n", buf, res, real_val);
+    }
   }
 
-  printf("%d exprs tested, accuracy is %d/%d\n", tests, correct_count, tests);
+  float accurrency = (double)correct_count / tests;
+
+  printf("%d samples tested, \033[1;32maccuracy\033[0m is %d/%d = \033[1;32m%f%%\033[0m\n", tests, correct_count, tests, accurrency * 100);
+  if (accurrency == 1.0) {
+    printf("All tests passed!\n");
+  }
   fclose(input_file);
   return 0;
 }
