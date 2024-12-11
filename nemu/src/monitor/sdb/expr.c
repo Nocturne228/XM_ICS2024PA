@@ -102,7 +102,7 @@ static Token tokens[1024] __attribute__((used)) = {};
 static int token_count __attribute__((used)) = 0;
 
 //* Iterate through the input string and try to match all the regular expression
-//rules
+// rules
 static bool make_token(char *e) {
   int position = 0;
   int i;
@@ -198,6 +198,7 @@ word_t expr(char *e, bool *success) {
 
     int i;
     for (i = 0; i < token_count; i++) {
+      // printf("Get token: \033[1;32;45m%s\033[0m\n", tokens[i].str);
       if (tokens[i].type == '-' &&
           (i == 0 ||
            (tokens[i - 1].type != TK_NUMBER && tokens[i - 1].type != TK_HEX &&
@@ -219,6 +220,113 @@ word_t expr(char *e, bool *success) {
     // return 0;
   }
 }
+
+#include <stdio.h>
+#include <stdlib.h>
+
+extern word_t paddr_read(paddr_t addr, int len);
+
+uint32_t eval(int p, int q) {
+  if (p > q || check_legal(p, q) == false) {
+    /* Bad expression */
+    return 0;
+  } else if (p == q) {
+    /*
+     * Single token.
+     * For now this token should be a number.
+     * Return the value of the number.
+     */
+    switch (tokens[p].type) {
+      case TK_NUMBER: {
+        uint32_t number;
+        number = (uint32_t)atoi(tokens[p].str);
+        return number;
+      }
+      case TK_HEX: {
+        uint32_t hex_number;
+        hex_number = (uint32_t)strtol(tokens[p].str, NULL, 16);
+        return hex_number;
+      }
+      case TK_REG: {
+        uint32_t reg_content;
+        bool check_success = true;
+        reg_content = isa_reg_str2val(tokens[p].str, &check_success);
+        if (check_success == true) {
+          return reg_content;
+        } else {
+          Assert(0, "Wrong register argument!\n");
+        }
+      }
+      case TK_NEG:
+      case TK_DEREF:
+        return 0;
+      default:
+        TODO();
+    }
+  } else if (check_parentheses(p, q)) {
+    /* The expression is surrounded by a matched pair of parentheses.
+     * If that is the case, just throw away the parentheses.
+     */
+    return eval(p + 1, q - 1);
+  } else {
+    int op = find_dominant_op(p, q);
+    uint32_t val1 = eval(p, op - 1);
+    uint32_t val2 = eval(op + 1, q);
+    // printf("%d\n",op);
+    switch (tokens[op].type) {
+      case '+':
+        return val1 + val2;
+      case '-':
+        return val1 - val2;
+      case '*':
+        return val1 * val2;
+      case '/':
+        // TODO: Handle division by zero error
+        if (val2 == 0) {
+          printf("Division by zero error!\n");
+          return -1;
+        }
+        return val1 / val2;
+      case TK_NEG: {
+        int index_neg = op;
+        while (tokens[index_neg].type == TK_NEG && index_neg >= 0) {
+          val2 = -val2;
+          index_neg--;
+        }
+        return val2;
+      }
+      case TK_DEREF: {
+        int index_deref = op;
+        while (tokens[index_deref].type == TK_DEREF && index_deref >= 0) {
+          val2 = paddr_read(val2, 4);
+          index_deref--;
+        }
+        return val2;
+      }
+      case TK_AND:
+        return val1 && val2;
+      case TK_OR:
+        return val1 || val2;
+      case TK_EQ:
+        return val1 == val2;
+      case TK_NEQ:
+        return val1 != val2;
+      case TK_LEQ:
+        return val1 <= val2;
+      case TK_GEQ:
+        return val1 >= val2;
+      case '<':
+        return val1 < val2;
+      case '>':
+        return val1 > val2;
+      case '!':
+        return !val2;
+      default:
+        assert(0);
+    }
+  }
+}
+
 
 bool check_legal(int p, int q) {
   int flag = 0;
@@ -274,104 +382,4 @@ int find_dominant_op(int p, int q) {
     start++;
   }
   return dominant_op;
-}
-
-#include <stdio.h>
-#include <stdlib.h>
-
-extern word_t paddr_read(paddr_t addr, int len);
-
-uint32_t eval(int p, int q) {
-  if (p > q || check_legal(p, q) == false) {
-    /* Bad expression */
-    return 0;
-  } else if (p == q) {
-    /* Single token.
-     * For now this token should be a number.
-     * Return the value of the number.
-     */
-    switch (tokens[p].type) {
-      case TK_NUMBER: {
-        uint32_t number;
-        number = (uint32_t)atoi(tokens[p].str);
-        return number;
-      }
-      case TK_HEX: {
-        uint32_t hex_number;
-        hex_number = (uint32_t)strtol(tokens[p].str, NULL, 16);
-        return hex_number;
-      }
-      case TK_REG: {
-        uint32_t reg_content;
-        bool check_success = true;
-        reg_content = isa_reg_str2val(tokens[p].str, &check_success);
-        if (check_success == true) {
-          return reg_content;
-        } else {
-          Assert(0, "Wrong register argument!\n");
-        }
-      }
-      case TK_NEG:
-      case TK_DEREF:
-        return 0;
-      default:
-        TODO();
-    }
-  } else if (check_parentheses(p, q)) {
-    /* The expression is surrounded by a matched pair of parentheses.
-     * If that is the case, just throw away the parentheses.
-     */
-    return eval(p + 1, q - 1);
-  } else {
-    int op = find_dominant_op(p, q);
-    uint32_t val1 = eval(p, op - 1);
-    uint32_t val2 = eval(op + 1, q);
-    // printf("%d\n",op);
-    switch (tokens[op].type) {
-      case '+':
-        return val1 + val2;
-      case '-':
-        return val1 - val2;
-      case '*':
-        return val1 * val2;
-      case '/':
-        return val1 / val2;
-      case TK_NEG: {
-        int index_neg = op;
-        while (tokens[index_neg].type == TK_NEG && index_neg >= 0) {
-          val2 = -val2;
-          index_neg--;
-        }
-        return val2;
-      }
-      case TK_DEREF: {
-        int index_deref = op;
-        while (tokens[index_deref].type == TK_DEREF && index_deref >= 0) {
-          val2 = paddr_read(val2, 4);
-          index_deref--;
-        }
-        return val2;
-      }
-      case TK_AND:
-        return val1 && val2;
-      case TK_OR:
-        return val1 || val2;
-      case TK_EQ:
-        return val1 == val2;
-      case TK_NEQ:
-        return val1 != val2;
-      case TK_LEQ:
-        return val1 <= val2;
-      case TK_GEQ:
-        return val1 >= val2;
-      case '<':
-        return val1 < val2;
-      case '>':
-        return val1 > val2;
-      case '!':
-        return !val2;
-      default:
-        assert(0);
-    }
-  }
 }

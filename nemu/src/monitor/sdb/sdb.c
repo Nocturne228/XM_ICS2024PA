@@ -159,6 +159,55 @@ static int cmd_d(char *args) {
   return 0;
 }
 
+static int cmd_test(char *args) {
+  int correct_count = 0;
+  FILE *input_file = fopen("/home/xiaoma/ics2024/nemu/tools/gen-expr/input", "r");
+  if (input_file == NULL) {
+    perror("Error opening input file");
+    return 1;
+  }
+
+  char record[1024];
+  unsigned real_val;
+  char buf[1024];
+
+  int tests = 100;
+  if (args == NULL) {
+    tests = 100;
+  } else {
+    sscanf(args, "%d", &tests);  // scan in and parse
+  }
+
+  for (int i = 0; i < tests; i++) {
+    if (fgets(record, sizeof(record), input_file) == NULL) {
+      perror("Error reading input file");
+      break;
+    }
+
+    char *token = strtok(record, " ");
+    if (token == NULL) {
+      printf("Invalid record format\n");
+      continue;
+    }
+    real_val = atoi(token);
+
+    strcpy(buf, "");
+    while ((token = strtok(NULL, "\n")) != NULL) {
+      strcat(buf, token);
+      strcat(buf, " ");
+    }
+
+    printf("Real Value: %u, Expression: %s\n", real_val, buf);
+    bool flag = false;
+    unsigned res = expr(buf, &flag);
+    if (res == real_val)  { correct_count++; }
+  }
+
+  printf("%d exprs tested, accuracy is %d/%d\n", tests, correct_count, tests);
+  fclose(input_file);
+  return 0;
+}
+
 static int cmd_help(char *args);
 
 static struct {
@@ -178,7 +227,8 @@ static struct {
     {"w",
      "Suspend program execution when the value of the expression EXPR changes",
      cmd_w},
-    {"d", "delete the watchpoint with sequence number n", cmd_d},
+    {"d", "Delete the watchpoint with sequence number n", cmd_d},
+    {"test", "Test the correctness of evalution command", cmd_test},
 };
 
 #define NR_CMD ARRLEN(cmd_table)
@@ -252,7 +302,7 @@ void sdb_mainloop() {
 }
 
 void init_sdb() {
-  /* Compile the regular expressions. */
+  /* Compile the regular exprs. */
   init_regex();
 
   /* Initialize the watchpoint pool. */
