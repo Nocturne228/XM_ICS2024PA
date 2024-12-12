@@ -328,24 +328,32 @@ uint32_t eval(int p, int q) {
   }
 }
 
-// TODO: check_parentheses, check_subexpr, find_next_parentheses are similar
+//? Update the parenthesis count (increment for '(' and decrement for ')')
+#define UPDATE_PARENTHESIS_COUNT(c, tokens, i) \
+  ((tokens[i].type == '(') ? (c)++ : ((tokens[i].type == ')') ? (c)-- : 0))
+//? Check if the count satisfies the given condition, return false if true
+#define CHECK_COUNT(c, condition) \
+  if (condition) return false;
+//? Check if the parentheses count is balanced (i.e., the count is zero)
+#define CHECK_PARENTHESIS_MATCH(c) \
+  if (c != 0) return false;
+//? for loop with 2 function
+#define FOR_LOOP(p, q, FUN1, FUN2) \
+  for (int i = p; i <= q; i++) { FUN1; FUN2; }
+//? Traverse the tokens from index p to q, update count, and check for mismatches
+#define CHECK_PARENTHESIS_LOOP(p, q, c, condition) \
+  FOR_LOOP(p, q, UPDATE_PARENTHESIS_COUNT(c, tokens, i), CHECK_COUNT(c, condition))
+
+// // TODO: check_parentheses, check_subexpr, find_next_parentheses are similar
 /*
  * Check if the parentheses are legal
  * One-to-one match
  */
 bool check_parentheses(int p, int q) {
   int flag = 0;
-  for (int i = p; i <= q; i++) {
-    if (tokens[i].type == '(')
-      flag++;
-    else if (tokens[i].type == ')')
-      flag--;
-    if (flag < 0) return false;
-  }
-  if (flag != 0)
-    return false;
-  else
-    return true;
+  CHECK_PARENTHESIS_LOOP(p, q, flag, flag < 0);
+  CHECK_PARENTHESIS_MATCH(flag);
+  return true;
 }
 
 /*
@@ -353,18 +361,9 @@ bool check_parentheses(int p, int q) {
  */
 bool check_subexpr(int p, int q) {
   int check = 0;
-  if (tokens[p].type != '(' || tokens[q].type != ')') {
-    return false;
-  }
-  for (int i = p; i <= q; i++) {
-    if (tokens[i].type == '(') {
-      check++;
-    } else if (tokens[i].type == ')') {
-      check--;
-    }
-    if (check == 0 && i < q) return false;
-  }
-  if (check != 0) return false;
+  if (tokens[p].type != '(' || tokens[q].type != ')') return false;
+  CHECK_PARENTHESIS_LOOP(p, q, check, check == 0 && i < q);
+  CHECK_PARENTHESIS_MATCH(check);
   return true;
 }
 
@@ -390,19 +389,9 @@ int find_dominant_op(int p, int q) {
 
 int find_next_parenthesis(int pos) {
   int count = 0;
-  // 从指定位置开始向后查找
   for (int i = pos; i < token_count; i++) {
-    if (tokens[i].type == '(') {
-      count++;
-    } else if (tokens[i].type == ')') {
-      count--;
-    }
-    // 匹配到当前左括号
-    if (count == 0) {
-      return i;
-    }
+    UPDATE_PARENTHESIS_COUNT(count, tokens, i);
+    if (count == 0) return i;
   }
-
-  // 如果遍历结束没有找到匹配
   return -1;
 }
