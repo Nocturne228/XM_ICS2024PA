@@ -39,7 +39,7 @@ static char *rl_gets() {
     line_read = NULL;
   }
 
-  line_read = readline("(nemu) ");
+  line_read = readline("(haibara) ");
 
   if (line_read && *line_read) {
     add_history(line_read);
@@ -58,9 +58,6 @@ static int cmd_q(char *args) {
   return -1;
 }
 
-// 24/11/24
-// Single instruction execute
-// Usage: si or si <N>
 static int cmd_si(char *args) {
   int step = 0;
   if (args == NULL) {
@@ -72,9 +69,6 @@ static int cmd_si(char *args) {
   return 0;
 }
 
-// 24/11/24
-// Print Program Status
-// Usage: info r(egister) or info w(atchpoint)
 static int cmd_info(char *args) {
   char *arg = strtok(NULL, " ");
   if (arg == NULL) {
@@ -82,8 +76,6 @@ static int cmd_info(char *args) {
   } else if (strcmp(args, "r") == 0) {
     isa_reg_display();
   } else if (strcmp(args, "w") == 0) {
-    // TODO: watchpoint
-    // printf("sdb_watchpoint_display() called\n");
     display_wp();
   } else {
     printf("Wrong arg or number exceeds\n");
@@ -91,16 +83,20 @@ static int cmd_info(char *args) {
   return 0;
 }
 
-// 24/11/24
-// Scan virtual memory
-// Usage: x N Expr
-// TODO error process (fatal when out of bound)
 static int cmd_x(char *args) {
   char *cnt_str = strtok(args, " ");
   // printf("count received: %s\n", cnt_str);
   if (cnt_str != NULL) {
     int cnt = atoi(cnt_str);
+    if (cnt == 0) {
+      printf("Reading length parsing failed!\n");
+      return 0;
+    }
     char *addr_str = strtok(NULL, "");
+    if (addr_str == NULL) {
+      printf("Valid address required!\n");
+      return 0;
+    }
 
     bool success = false;
     // printf("addr received: %s\n", addr_str);
@@ -111,25 +107,21 @@ static int cmd_x(char *args) {
       return 0;
     }
 
-    printf("%-14s%-28s%-s\n", "Address", "Hexadecimal", "Decimal");
     for (int i = 0; i < cnt; ++i) {
-      printf("0x%-12x0x%02x  0x%02x  0x%02x  0x%02x", (addr),
-             vaddr_read(addr, 1), vaddr_read(addr + 1, 1),
-             vaddr_read(addr + 2, 1), vaddr_read(addr + 3, 1));
-      printf("\t  %04d  %04d  %04d  %04d\n", vaddr_read(addr, 1),
-             vaddr_read(addr + 1, 1), vaddr_read(addr + 2, 1),
-             vaddr_read(addr + 3, 1));
+      word_t val1 = vaddr_read(addr, 1), val2 = vaddr_read(addr + 1, 1),
+             val3 = vaddr_read(addr + 2, 1), val4 = vaddr_read(addr + 3, 1);
+      if (val1 == -1 || val2 == -1 || val3 == -1 || val4 == -1) {
+        printf("\033[1;31mMemory read out of error!\033[0m\n");
+        return 0;
+      }
+      printf("%-14s%-28s%-s\n", "Address", "Hexadecimal", "Decimal");
+      printf("0x%-12x0x%02x  0x%02x  0x%02x  0x%02x", (addr), val1, val2, val3, val4);
+      printf("\t  %04d  %04d  %04d  %04d\n", val1, val2, val3, val4);
       addr += 4;
     }
   }
   return 0;
 }
-
-// 24/11/25
-// Evaluate expression
-// // TODO: Bug fix: Fixed
-// A single number parenthesed will be treated as invalid syntax
-// Can't handle long expression
 
 static int cmd_p(char *args) {
   if (args == NULL) return 0;
@@ -148,7 +140,7 @@ static int cmd_p(char *args) {
 
 static int cmd_w(char *args) {
   if (args == NULL) return 0;
-  if (new_wp(args) == NULL) printf("the watch_point_pool is full!\n");
+  if (new_wp(args) == NULL) printf("\033[1;31mWatch_point_pool is full!\033[0m\\n");
   return 0;
 }
 
@@ -204,13 +196,19 @@ static int cmd_test(char *args) {
     if (res == real_val) {
       correct_count++;
     } else {
-      printf("\033[1;32mExpression\033[0m: %s\n\033[1;31mGot\033[0m: %u, \033[1;31mexpected\033[0m: %u\n\n", buf, res, real_val);
+      printf(
+          "\033[1;32mExpression\033[0m: %s\n\033[1;31mGot\033[0m: %u, "
+          "\033[1;31mexpected\033[0m: %u\n\n",
+          buf, res, real_val);
     }
   }
 
   float accurrency = (double)correct_count / tests;
 
-  printf("%d samples tested, \033[1;32maccuracy\033[0m is %d/%d = \033[1;32m%f%%\033[0m\n", tests, correct_count, tests, accurrency * 100);
+  printf(
+      "%d samples tested, \033[1;32maccuracy\033[0m is %d/%d = "
+      "\033[1;32m%f%%\033[0m\n",
+      tests, correct_count, tests, accurrency * 100);
   if (accurrency == 1.0) {
     printf("All tests passed!\n");
   }

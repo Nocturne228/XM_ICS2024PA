@@ -23,6 +23,8 @@
 enum {
   TK_NOTYPE = 256,
   /* TODO: Add more token types */
+  // * Tokens already added:
+  // * ==, !=, num, hex, neg num, &&, ||, *(deref), >=. <=
   TK_EQ,
   TK_NEQ,
   TK_NUMBER,
@@ -36,8 +38,8 @@ enum {
   TK_LEQ,
 };
 
-// * Regular rules for possible operators and expression fragments and their
-// corresponding precedence
+// * Regular rules for possible operators and expression fragments
+// * and their corresponding precedence
 static struct rule {
   const char *regex;
   int token_type;
@@ -118,9 +120,8 @@ static bool make_token(char *e) {
         char *substr_start = e + position;
         int substr_len = pmatch.rm_eo;
 
-        // Log("match rules[%d] = \"%s\" at position %d with len %d: %.*s",
-        //     i, rules[i].regex, position, substr_len, substr_len,
-        //     substr_start);
+        // Log("match rules[%d] = \"%s\" at position %d with len %d: %.*s", i,
+        //     rules[i].regex, position, substr_len, substr_len, substr_start);
 
         position += substr_len;
 
@@ -184,10 +185,10 @@ static bool make_token(char *e) {
   return true;
 }
 
-bool check_parentheses(int p, int q);
+bool check_subexpr(int p, int q);
 int find_dominant_op(int p, int q);
 uint32_t eval(int p, int q);
-bool check_legal(int p, int q);
+bool check_parentheses(int p, int q);
 
 word_t expr(char *e, bool *success) {
   if (!make_token(e)) {
@@ -217,17 +218,16 @@ word_t expr(char *e, bool *success) {
 
     uint32_t res = eval(0, token_count - 1);
     return res;
-    // return 0;
   }
 }
 
 #include <stdio.h>
 #include <stdlib.h>
 
-extern word_t paddr_read(paddr_t addr, int len);
+extern word_t vaddr_read(vaddr_t addr, int len);
 
 uint32_t eval(int p, int q) {
-  if (p > q || check_legal(p, q) == false) {
+  if (p > q || check_parentheses(p, q) == false) {
     /* Bad expression */
     return 1;
   } else if (p == q) {
@@ -263,8 +263,9 @@ uint32_t eval(int p, int q) {
       default:
         TODO();
     }
-  } else if (check_parentheses(p, q)) {
-    /* The expression is surrounded by a matched pair of parentheses.
+  } else if (check_subexpr(p, q)) {
+    /*
+     * The expression is surrounded by a matched pair of parentheses.
      * If that is the case, just throw away the parentheses.
      */
     return eval(p + 1, q - 1);
@@ -298,7 +299,7 @@ uint32_t eval(int p, int q) {
       case TK_DEREF: {
         int index_deref = op;
         while (tokens[index_deref].type == TK_DEREF && index_deref >= 0) {
-          val2 = paddr_read(val2, 4);
+          val2 = vaddr_read(val2, 4);
           index_deref--;
         }
         return val2;
@@ -327,7 +328,12 @@ uint32_t eval(int p, int q) {
   }
 }
 
-bool check_legal(int p, int q) {
+// TODO: check_parentheses, check_subexpr, find_next_parentheses are similar
+/*
+ * Check if the parentheses are legal
+ * One-to-one match
+ */
+bool check_parentheses(int p, int q) {
   int flag = 0;
   for (int i = p; i <= q; i++) {
     if (tokens[i].type == '(')
@@ -342,7 +348,10 @@ bool check_legal(int p, int q) {
     return true;
 }
 
-bool check_parentheses(int p, int q) {
+/*
+ * Eliminating redundant brackets
+ */
+bool check_subexpr(int p, int q) {
   int check = 0;
   if (tokens[p].type != '(' || tokens[q].type != ')') {
     return false;
@@ -359,41 +368,41 @@ bool check_parentheses(int p, int q) {
   return true;
 }
 
+int find_next_parenthesis(int pos);
+
 int find_dominant_op(int p, int q) {
-  int ret = -1, par = 0, op_type = 0;
-  for (int i = p; i <= q; i++) {
-    if (tokens[i].type == TK_NUMBER) {
+  int start = p;
+  int end = q;
+  int dominant_op = -1;
+  int min_priority = INT8_MAX;
+  while (start <= end) {
+    if (tokens[start].type == '(') {
+      start = find_next_parenthesis(start) + 1;
       continue;
+    } else if (tokens[start].priority <= min_priority) {
+      dominant_op = start;
+      min_priority = tokens[start].priority;
     }
+    start++;
+  }
+  return dominant_op;
+}
+
+int find_next_parenthesis(int pos) {
+  int count = 0;
+  // 从指定位置开始向后查找
+  for (int i = pos; i < token_count; i++) {
     if (tokens[i].type == '(') {
-      par++;
+      count++;
     } else if (tokens[i].type == ')') {
-      if (par == 0) {
-        return -1;
-      }
-      par--;
-    } else if (par > 0) {
-      continue;
-    } else {
-      int tmp_type = 0;
-      switch (tokens[i].type) {
-        case '*':
-        case '/':
-          tmp_type = 1;
-          break;
-        case '+':
-        case '-':
-          tmp_type = 2;
-          break;
-        default:
-          assert(0);
-      }
-      if (tmp_type >= op_type) {
-        op_type = tmp_type;
-        ret = i;
-      }
+      count--;
+    }
+    // 匹配到当前左括号
+    if (count == 0) {
+      return i;
     }
   }
-  if (par != 0) return -1;
-  return ret;
+
+  // 如果遍历结束没有找到匹配
+  return -1;
 }
