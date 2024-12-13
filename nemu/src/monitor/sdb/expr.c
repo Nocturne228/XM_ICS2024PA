@@ -329,20 +329,27 @@ uint32_t eval(int p, int q) {
 }
 
 //? Update the parenthesis count (increment for '(' and decrement for ')')
-#define UPDATE_PARENTHESIS_COUNT(c, tokens, i) \
+#define UPDATE_PARENTHESIS(c, tokens, i) \
   ((tokens[i].type == '(') ? (c)++ : ((tokens[i].type == ')') ? (c)-- : 0))
+
 //? Check if the count satisfies the given condition, return false if true
-#define CHECK_COUNT(c, condition) \
+#define IF_COND(c, condition) \
   if (condition) return false;
+
 //? Check if the parentheses count is balanced (i.e., the count is zero)
-#define CHECK_PARENTHESIS_MATCH(c) \
+#define IF_UNBALANCED(c) \
   if (c != 0) return false;
+
 //? for loop with 2 function
 #define FOR_LOOP(p, q, FUN1, FUN2) \
   for (int i = p; i <= q; i++) { FUN1; FUN2; }
+
 //? Traverse the tokens from index p to q, update count, and check for mismatches
-#define CHECK_PARENTHESIS_LOOP(p, q, c, condition) \
-  FOR_LOOP(p, q, UPDATE_PARENTHESIS_COUNT(c, tokens, i), CHECK_COUNT(c, condition))
+#define PROCESS_PARENS(p, q, c, condition) \
+  FOR_LOOP(p, q, UPDATE_PARENTHESIS(c, tokens, i), IF_COND(c, condition))
+
+#define CHECK(p, q, c, cond) \
+  { PROCESS_PARENS(p, q, c, cond); IF_UNBALANCED(c); }
 
 // // TODO: check_parentheses, check_subexpr, find_next_parentheses are similar
 /*
@@ -351,8 +358,8 @@ uint32_t eval(int p, int q) {
  */
 bool check_parentheses(int p, int q) {
   int flag = 0;
-  CHECK_PARENTHESIS_LOOP(p, q, flag, flag < 0);
-  CHECK_PARENTHESIS_MATCH(flag);
+  CHECK(p, q, flag, flag < 0);
+  // CHECK_PARENTHESIS_MATCH(flag);
   return true;
 }
 
@@ -362,8 +369,8 @@ bool check_parentheses(int p, int q) {
 bool check_subexpr(int p, int q) {
   int check = 0;
   if (tokens[p].type != '(' || tokens[q].type != ')') return false;
-  CHECK_PARENTHESIS_LOOP(p, q, check, check == 0 && i < q);
-  CHECK_PARENTHESIS_MATCH(check);
+  CHECK(p, q, check, check == 0 && i < q);
+  // CHECK_PARENTHESIS_MATCH(check);
   return true;
 }
 
@@ -390,8 +397,9 @@ int find_dominant_op(int p, int q) {
 int find_next_parenthesis(int pos) {
   int count = 0;
   for (int i = pos; i < token_count; i++) {
-    UPDATE_PARENTHESIS_COUNT(count, tokens, i);
+    UPDATE_PARENTHESIS(count, tokens, i);
     if (count == 0) return i;
   }
   return -1;
 }
+
