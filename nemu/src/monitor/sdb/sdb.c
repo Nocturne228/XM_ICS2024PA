@@ -83,6 +83,14 @@ static int cmd_info(char *args) {
   return 0;
 }
 
+// Print binary
+void to_binary(uint8_t num, char *str) {
+  for (int i = 7; i >= 0; i--) {
+    str[7 - i] = (num & (1 << i)) ? '1' : '0';
+  }
+  str[8] = '\0'; // null-terminate the string
+}
+
 static int cmd_x(char *args) {
   char *cnt_str = strtok(args, " ");
   // printf("count received: %s\n", cnt_str);
@@ -114,9 +122,12 @@ static int cmd_x(char *args) {
         printf("\033[1;31mMemory read out of error!\033[0m\n");
         return 0;
       }
-      printf("%-14s%-28s%-s\n", "Address", "Hexadecimal", "Decimal");
+      printf("%-14s%-26s%-s\n", "Address", "Hexadecimal", "Binary");
       printf("0x%-12x0x%02x  0x%02x  0x%02x  0x%02x", (addr), val1, val2, val3, val4);
-      printf("\t  %04d  %04d  %04d  %04d\n", val1, val2, val3, val4);
+      // printf("\t  %04d  %04d  %04d  %04d\n", val1, val2, val3, val4);
+      char bin1[9], bin2[9], bin3[9], bin4[9];
+      to_binary(val1, bin1); to_binary(val2, bin2); to_binary(val3, bin3); to_binary(val4, bin4);
+      printf("\t%-8s  %-8s  %-8s  %-8s\n", bin1, bin2, bin3, bin4);
       addr += 4;
     }
   }
