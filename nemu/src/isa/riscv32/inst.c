@@ -59,6 +59,10 @@ static void decode_operand(Decode *s, int *rd, word_t *src1, word_t *src2, word_
 }
 
 static int32_t high_mul_i32(int32_t a, int32_t b);
+static int32_t high_mulsu_i32(int32_t a, uint32_t b);
+static uint64_t full_mul_u32(uint32_t a, uint32_t b, uint32_t *out_h);
+static word_t div_result(word_t a, word_t b, bool is_signed);
+static word_t rem_result(word_t a, word_t b, bool is_signed);
 
 static int decode_exec(Decode *s) {
   s->dnpc = s->snpc;
@@ -91,10 +95,12 @@ static int decode_exec(Decode *s) {
   INSTPAT("000000? ????? ????? 001 ????? 00100 11", slli   , I, R(rd) = src1 << BITS(imm, 5, 0));
   INSTPAT("000000? ????? ????? 101 ????? 00100 11", srli   , I, R(rd) = src1 >> BITS(imm, 5, 0));
   INSTPAT("010000? ????? ????? 101 ????? 00100 11", srai   , I, R(rd) = (sword_t)src1 >> BITS(imm, 5, 0));
-  INSTPAT("??????? ????? ????? 011 ????? 00100 11", sltiu  , I, R(rd) = src1 < imm );
+  INSTPAT("??????? ????? ????? 010 ????? 00100 11", slti   , I, R(rd) = (sword_t)src1 < (sword_t)imm ? 1 : 0);
+  INSTPAT("??????? ????? ????? 011 ????? 00100 11", sltiu  , I, R(rd) = src1 < imm ? 1 : 0);
   // *-------------------------------------------------------------------------------------------------------------------* //
-  INSTPAT("??????? ????? ????? 010 ????? 00000 11", lw     , I, SEXT(R(rd) = Mr(src1 + imm, 4), 32));
+  INSTPAT("??????? ????? ????? 000 ????? 00000 11", lb     , I, R(rd) = SEXT(Mr(src1 + imm, 1), 8));
   INSTPAT("??????? ????? ????? 001 ????? 00000 11", lh     , I, R(rd) = SEXT(Mr(src1 + imm, 2), 16));
+  INSTPAT("??????? ????? ????? 010 ????? 00000 11", lw     , I, R(rd) = SEXT(Mr(src1 + imm, 4), 32));
   INSTPAT("??????? ????? ????? 100 ????? 00000 11", lbu    , I, R(rd) = Mr(src1 + imm, 1));
   INSTPAT("??????? ????? ????? 101 ????? 00000 11", lhu    , I, R(rd) = Mr(src1 + imm, 2));
   // *-------------------------------------------------------------------------------------------------------------------* //
@@ -133,10 +139,12 @@ static int decode_exec(Decode *s) {
   // *-------------------------------------------------------------------------------------------------------------------* //
   INSTPAT("0000001 ????? ????? 000 ????? 01100 11", mul    , R, R(rd) = src1 * src2);
   INSTPAT("0000001 ????? ????? 001 ????? 01100 11", mulh   , R, R(rd) = high_mul_i32((sword_t)src1, (sword_t)src2));
-  INSTPAT("0000001 ????? ????? 100 ????? 01100 11", div    , R, R(rd) = (sword_t)src1 / (sword_t)src2);
-  INSTPAT("0000001 ????? ????? 101 ????? 01100 11", divu   ,    R, R(rd) = src1 / src2);
-  INSTPAT("0000001 ????? ????? 110 ????? 01100 11", rem    , R, R(rd) = (sword_t)src1 % (sword_t)src2);
-  INSTPAT("0000001 ????? ????? 111 ????? 01100 11", remu   , R, R(rd) = src1 % src2);
+  INSTPAT("0000001 ????? ????? 010 ????? 01100 11", mulhsu , R, R(rd) = high_mulsu_i32((sword_t)src1, (word_t)src2));
+  INSTPAT("0000001 ????? ????? 011 ????? 01100 11", mulhu  , R, word_t t; full_mul_u32(src1, src2, &t); R(rd) = t);
+  INSTPAT("0000001 ????? ????? 100 ????? 01100 11", div    , R, R(rd) = div_result(src1, src2, true));
+  INSTPAT("0000001 ????? ????? 101 ????? 01100 11", divu   , R, R(rd) = div_result(src1, src2, false));
+  INSTPAT("0000001 ????? ????? 110 ????? 01100 11", rem    , R, R(rd) = rem_result(src1, src2, true));
+  INSTPAT("0000001 ????? ????? 111 ????? 01100 11", remu   , R, R(rd) = rem_result(src1, src2, false));
   // *-------------------------------------------------------------------------------------------------------------------* //
   INSTPAT("??????? ????? ????? ??? ????? ????? ??", inv    , N, INV(s->pc));
   // *-------------------------------------------------------------------------------------------------------------------* //
@@ -156,4 +164,29 @@ int isa_exec_once(Decode *s) {
 static int32_t high_mul_i32(int32_t a, int32_t b) {
   const int64_t result = (int64_t)a * (int64_t)b;
   return (int32_t)(result >> 32);
+}
+
+static int32_t high_mulsu_i32(int32_t a, uint32_t b) {
+  const int64_t result = (int64_t)a * (uint64_t)b;
+  return (int32_t)(result >> 32);
+}
+
+static uint64_t full_mul_u32(uint32_t a, uint32_t b, uint32_t *out_h) {
+  const uint64_t result = (uint64_t)a * (uint64_t)b;
+  if (out_h != NULL) {
+    *out_h = (uint32_t)(result >> 32);
+  }
+  return (uint32_t)(result & 0xFFFFFFFF);
+}
+
+static inline word_t div_result(word_t a, word_t b, bool is_signed) {
+  if (b == 0) return -1;
+  if (is_signed && (sword_t)a == 0x80000000 && (sword_t)b == -1) return 0x80000000;
+  return is_signed ? (sword_t)a / (sword_t)b : a / b;
+}
+
+static inline word_t rem_result(word_t a, word_t b, bool is_signed) {
+  if (b == 0) return a;
+  if (is_signed && b == -1) return 0;
+  return is_signed ? (sword_t)a % (sword_t)b : a % b;
 }

@@ -4,218 +4,293 @@
 #include <stdarg.h>
 
 #if !defined(__ISA_NATIVE__) || defined(__NATIVE_USE_KLIB__)
-typedef void (*putter_t)(char ch, void *buf, size_t idx, size_t maxlen);
 
-static int _vsnprintf(putter_t, char *, const size_t, const char *, va_list);
-static void _putter_out(char ch, void *buf, size_t idx, size_t maxlen);
-static void _putter_buf(char ch, void *buf, size_t idx, size_t maxlen);
-static void _put_literal(putter_t, void *, const char *, size_t *, size_t);
+#define PRINTF_IMPL(expr) \
+    va_list ap; \
+    va_start(ap, fmt); \
+    int result = (expr); \
+    va_end(ap); \
+    return result;
 
-static void _itoa(putter_t, char *, int, int, size_t *, size_t, int);
-static void _utoa(putter_t, char *, unsigned int, int, size_t *, size_t, int);
-static void _reverse(char *str, int length);
+#define do_div(n, base)                         \
+  ({                                            \
+    unsigned int __base = (base);               \
+    unsigned int __rem;                         \
+    __rem = ((unsigned long long)(n)) % __base; \
+    (n) = ((unsigned long long)(n)) / __base;   \
+    __rem;                                      \
+  })
 
-int printf(const char *fmt, ...) {
-  // panic("Not implemented");
-  va_list args;
-  va_start(args, fmt);
-  char buf[1];
-  int result = _vsnprintf(_putter_out, buf, (size_t)-1, fmt, args);
-  va_end(args);
-  return result;
-}
+#define ZEROPAD 1  /* pad with zero */
+#define SIGN 2     /* unsigned/signed long */
+#define PLUS 4     /* show plus */
+#define SPACE 8    /* space if plus */
+#define LEFT 16    /* left justified */
+#define SPECIAL 32 /* 0x */
+#define LARGE 64   /* use 'ABCDEF' instead of 'abcdef' */
+
+static char *number(char *str, unsigned long long num, int base, int size,
+                    int precision, int type);
+static int skip_atoi(const char **s);
+int _vsprintf(char *out, const char *fmt, va_list ap);
+
+int printf(const char *fmt, ...) { panic("Not implemented"); }
 
 int vsprintf(char *out, const char *fmt, va_list ap) {
-  // panic("Not implemented");
-  return vsnprintf(out, (size_t)-1, fmt, ap);
+  return _vsprintf(out, fmt, ap);
 }
 
 int sprintf(char *out, const char *fmt, ...) {
-  // panic("Not implemented");
-  va_list args;
-  va_start(args, fmt);
-  int result = vsprintf(out, fmt, args);
-  va_end(args);
-  return result;
+  PRINTF_IMPL(_vsprintf(out, fmt, ap));
 }
 
 int snprintf(char *out, size_t n, const char *fmt, ...) {
-  // panic("Not implemented");
-  va_list args;
-  va_start(args, fmt);
-  int result = vsnprintf(out, n, fmt, args);
-  va_end(args);
-  return result;
+  panic("Not implemented");
 }
 
 int vsnprintf(char *out, size_t n, const char *fmt, va_list ap) {
-  // panic("Not implemented");
-  return _vsnprintf(_putter_buf, out, n, fmt, ap);
+  panic("Not implemented");
 }
 
-// * -----------------------------------------------------  * //
+int _vsprintf(char *out, const char *fmt, va_list ap) {
+  int len;
+  unsigned long long num;
+  int i, base;
+  char *str;
+  const char *s;
 
-static int _vsnprintf(putter_t put, char *buf, const size_t maxlen,
-                      const char *fmt, va_list ap) {
-  size_t idx = 0;
+  int flags; /* flags to number() */
 
-  while (*fmt != '\0') {
+  int field_width; /* width of output field */
+  int precision;   /* min. # of digits for integers; max
+                      number of chars for from string */
+  int qualifier;   /* 'h', 'l', or 'L' for integer fields */
+                   /* 'z' support added 23/7/1999 S.H.    */
+                   /* 'z' changed to 'Z' --davidm 1/25/99 */
+
+  for (str = out; *fmt; ++fmt) {
     if (*fmt != '%') {
-      put(*fmt, buf, idx++, maxlen);
-      fmt++;
+      *str++ = *fmt;
       continue;
     }
-    fmt++;
 
-    int zpad_width = 0;
-
+    /* process flags */
+    flags = 0;
+  repeat:
+    ++fmt; /* this also skips first '%' */
     switch (*fmt) {
+      case '-':
+        flags |= LEFT;
+        goto repeat;
+      case '+':
+        flags |= PLUS;
+        goto repeat;
+      case ' ':
+        flags |= SPACE;
+        goto repeat;
+      case '#':
+        flags |= SPECIAL;
+        goto repeat;
       case '0':
-        zpad_width = atoi(++fmt);
-        while (*fmt >= '0' && *fmt <= '9') {
-          fmt++;
-        }
-        break;
-      default:
-        break;
+        flags |= ZEROPAD;
+        goto repeat;
     }
+
+    /* get field width */
+    field_width = -1;
+    if ('0' <= *fmt && *fmt <= '9')
+      field_width = skip_atoi(&fmt);
+    else if (*fmt == '*') {
+      ++fmt;
+      /* it's the next argument */
+      field_width = va_arg(ap, int);
+      if (field_width < 0) {
+        field_width = -field_width;
+        flags |= LEFT;
+      }
+    }
+
+    /* get the precision */
+    precision = -1;
+    if (*fmt == '.') {
+      ++fmt;
+      if ('0' <= *fmt && *fmt <= '9')
+        precision = skip_atoi(&fmt);
+      else if (*fmt == '*') {
+        ++fmt;
+        /* it's the next argument */
+        precision = va_arg(ap, int);
+      }
+      if (precision < 0) precision = 0;
+    }
+
+    /* get the conversion qualifier */
+    qualifier = -1;
+    if (*fmt == 'l' && *(fmt + 1) == 'l') {
+      qualifier = 'q';
+      fmt += 2;
+    } else if (*fmt == 'h' || *fmt == 'l' || *fmt == 'L' || *fmt == 'Z') {
+      qualifier = *fmt;
+      ++fmt;
+    }
+
+    /* default base */
+    base = 10;
 
     switch (*fmt) {
-      case 's': {
-        char *p = va_arg(ap, char *);
-        while (*p != '\0') {
-          put(*(p++), buf, idx++, maxlen);
+      case 'c':
+        if (!(flags & LEFT))
+          while (--field_width > 0) *str++ = ' ';
+        *str++ = (unsigned char)va_arg(ap, int);
+        while (--field_width > 0) *str++ = ' ';
+        continue;
+
+      case 's':
+        s = va_arg(ap, char *);
+        if (!s) s = "<NULL>";
+
+        len = strnlen(s, precision);
+
+        if (!(flags & LEFT))
+          while (len < field_width--) *str++ = ' ';
+        for (i = 0; i < len; ++i) *str++ = *s++;
+        while (len < field_width--) *str++ = ' ';
+        continue;
+
+      case 'p':
+        if (field_width == -1) {
+          field_width = 2 * sizeof(void *);
+          flags |= ZEROPAD;
         }
-        fmt++;
-        break;
-      }
-      case 'd': {
-        int x = va_arg(ap, int);
-        _itoa(put, buf, x, 10, &idx, maxlen, zpad_width);
-        fmt++;
-        break;
-      }
-      case 'u': {
-        unsigned int u = va_arg(ap, unsigned int);
-        _utoa(put, buf, u, 10, &idx, maxlen, zpad_width);
-        fmt++;
-        break;
-      }
-      case 'x': {
-        unsigned int u = va_arg(ap, unsigned int);
-        _utoa(put, buf, u, 16, &idx, maxlen, zpad_width);
-        fmt++;
-        break;
-      }
-      case 'p': {
-        uintptr_t u = va_arg(ap, uintptr_t);
-        if (u == (uintptr_t)NULL) {
-          _put_literal(put, buf, "(null)", &idx, maxlen);
+        str = number(str, (unsigned long)va_arg(ap, void *), 16, field_width,
+                     precision, flags);
+        continue;
+
+      case 'n':
+        if (qualifier == 'l') {
+          long *ip = va_arg(ap, long *);
+          *ip = (str - out);
+        } else if (qualifier == 'Z') {
+          size_t *ip = va_arg(ap, size_t *);
+          *ip = (str - out);
         } else {
-          _put_literal(put, buf, "0x", &idx, maxlen);
-          _utoa(put, buf, u, 16, &idx, maxlen, zpad_width);
+          int *ip = va_arg(ap, int *);
+          *ip = (str - out);
         }
-        fmt++;
+        continue;
+
+      case '%':
+        *str++ = '%';
+        continue;
+
+      /* integer number formats - set up the flags and "break" */
+      case 'o':
+        base = 8;
         break;
-      }
-      case 'c': {
-        char ch = (char)va_arg(ap, int);
-        put(ch, buf, idx++, maxlen);
-        fmt++;
+
+      case 'X':
+        flags |= LARGE;
+      case 'x':
+        base = 16;
         break;
-      }
-      default: {
-        put(*fmt, buf, idx++, maxlen);
-        fmt++;
+
+      case 'd':
+      case 'i':
+        flags |= SIGN;
+      case 'u':
         break;
-      }
+
+      default:
+        *str++ = '%';
+        if (*fmt)
+          *str++ = *fmt;
+        else
+          --fmt;
+        continue;
+    }
+    if (qualifier == 'l') {
+      num = va_arg(ap, unsigned long);
+      if (flags & SIGN) num = (signed long)num;
+    } else if (qualifier == 'q') {
+      num = va_arg(ap, unsigned long long);
+      if (flags & SIGN) num = (signed long long)num;
+    } else if (qualifier == 'Z') {
+      num = va_arg(ap, size_t);
+    } else if (qualifier == 'h') {
+      num = (unsigned short)va_arg(ap, int);
+      if (flags & SIGN) num = (signed short)num;
+    } else {
+      num = va_arg(ap, unsigned int);
+      if (flags & SIGN) num = (signed int)num;
+    }
+    str = number(str, num, base, field_width, precision, flags);
+  }
+  *str = '\0';
+  return str - out;
+}
+
+static int skip_atoi(const char **s) {
+  int i, c;
+  for (i = 0; '0' <= (c = **s) && c <= '9'; ++*s) i = i * 10 + c - '0';
+  return i;
+}
+
+static char *number(char *str, unsigned long long num, int base, int size,
+                    int precision, int type) {
+  char c, sign, tmp[66];
+  const char *digits = "0123456789abcdefghijklmnopqrstuvwxyz";
+  int i;
+
+  if (type & LARGE) digits = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+  if (type & LEFT) type &= ~ZEROPAD;
+  if (base < 2 || base > 36) return 0;
+  c = (type & ZEROPAD) ? '0' : ' ';
+  sign = 0;
+  if (type & SIGN) {
+    if ((signed long long)num < 0) {
+      sign = '-';
+      num = -(signed long long)num;
+      size--;
+    } else if (type & PLUS) {
+      sign = '+';
+      size--;
+    } else if (type & SPACE) {
+      sign = ' ';
+      size--;
     }
   }
-
-  put(0, buf, idx < maxlen ? idx : maxlen - 1, maxlen);
-  return (int)idx;
-}
-
-static void _putter_out(char ch, void *buf, size_t idx, size_t maxlen) {
-  (void)buf;
-  (void)idx;
-  (void)maxlen;
-  if (ch) {
-    putch(ch);
+  if (type & SPECIAL) {
+    if (base == 16)
+      size -= 2;
+    else if (base == 8)
+      size--;
   }
-}
-
-static void _putter_buf(char ch, void *buf, size_t idx, size_t maxlen) {
-  if (idx < maxlen) {
-    ((char *)buf)[idx] = ch;
+  i = 0;
+  if (num == 0)
+    tmp[i++] = '0';
+  else
+    while (num != 0) {
+      tmp[i++] = digits[do_div(num, base)];
+    }
+  if (i > precision) precision = i;
+  size -= precision;
+  if (!(type & (ZEROPAD + LEFT)))
+    while (size-- > 0) *str++ = ' ';
+  if (sign) *str++ = sign;
+  if (type & SPECIAL) {
+    if (base == 8)
+      *str++ = '0';
+    else if (base == 16) {
+      *str++ = '0';
+      *str++ = digits[33];
+    }
   }
-}
-
-static void _put_literal(putter_t put, void *buf, const char *str,
-                         size_t *p_idx, size_t maxlen) {
-  while (*str != '\0') {
-    put(*str, buf, *p_idx, maxlen);
-    str++;
-    (*p_idx)++;
-  }
-}
-
-static void _itoa(putter_t put, char *buf, int num, int base, size_t *p_idx,
-                  size_t maxlen, int zpad_width) {
-  bool is_neg = false;
-  static char str[32] = {0};
-  size_t idx = 0;
-  zpad_width = zpad_width <= 0 ? 1 : zpad_width;
-  if (num < 0 && base == 10) {
-    is_neg = true;
-    num = -num;
-  }
-  while (num != 0) {
-    int rem = num % base;
-    str[idx++] = (rem > 9) ? (rem - 10) + 'a' : rem + '0';
-    num /= base;
-  }
-  while (idx < zpad_width - (is_neg ? 1 : 0)) {
-    str[idx++] = '0';
-  }
-  if (is_neg) {
-    str[idx++] = '-';
-  }
-  _reverse(str, idx);
-  for (size_t i = 0; i < idx; i++) {
-    put(str[i], buf, (*p_idx)++, maxlen);
-  }
-}
-
-static void _utoa(putter_t put, char *buf, unsigned int num, int base,
-                  size_t *p_idx, size_t maxlen, int zpad_width) {
-  static char str[32] = {0};
-  size_t idx = 0;
-  zpad_width = zpad_width <= 0 ? 1 : zpad_width;
-  while (num != 0) {
-    unsigned int rem = num % base;
-    str[idx++] = (rem > 9) ? (rem - 10) + 'a' : rem + '0';
-    num /= base;
-  }
-  while (idx < zpad_width) {
-    str[idx++] = '0';
-  }
-  _reverse(str, idx);
-  for (size_t i = 0; i < idx; i++) {
-    put(str[i], buf, (*p_idx)++, maxlen);
-  }
-}
-
-static void _reverse(char *str, int length) {
-  int start = 0;
-  int end = length - 1;
-  while (start < end) {
-    str[start] ^= str[end];
-    str[end] ^= str[start];
-    str[start] ^= str[end];
-    end--;
-    start++;
-  }
+  if (!(type & LEFT))
+    while (size-- > 0) *str++ = c;
+  while (i < precision--) *str++ = '0';
+  while (i-- > 0) *str++ = tmp[i];
+  while (size-- > 0) *str++ = ' ';
+  return str;
 }
 
 #endif
