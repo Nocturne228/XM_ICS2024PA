@@ -30,7 +30,7 @@ invalid opcode(PC = 0x80000000):
 
 然后是 `decode_oprand` 函数的实现。`rd` 只要存在于指令中，必然位于固定的位置。这里要做的是根据手册，根据各类型指令源操作数和立即数的有无和个数进行提取。例如对于 S 类型指令，就需要调用 `src1R`、`src2R`、`immS`提取各数据。而对于 U 和 J 类型指令只需要提取对应的立即数即可。
 
-最后就是 `INSTPAT` 中的内容了，按照指令表的内容一一填写即可。这里以 `jal` 和 `jalr` 为例，偷懒没有参考官方手册内容（东西太多了），而是参考了 [RISCV_CARD](https://www.cs.sfu.ca/~ashriram/Courses/CS295/assets/notebooks/RISCV/RISCV_CARD.pdf) 和网站 https://marks.page/riscv/。由于学过嵌入式课程，对于一些名词还是能理解的。真正的原版应该The RISC-V Instruction Set Manual ([Volume I](https://github.com/riscv/riscv-isa-manual/releases/download/Priv-v1.12/riscv-privileged-20211203.pdf), [Volume II](https://github.com/riscv/riscv-isa-manual/releases/download/Ratified-IMAFDQC/riscv-spec-20191213.pdf)) And [ABI for riscv](https://github.com/riscv-non-isa/riscv-elf-psabi-doc)
+最后就是 `INSTPAT` 中的内容了，按照指令表的内容一一填写即可。这里以 `jal` 和 `jalr` 为例，偷懒没有参考官方手册内容（东西太多了），而是参考了 [RISCV_CARD](https://www.cs.sfu.ca/~ashriram/Courses/CS295/assets/notebooks/RISCV/RISCV_CARD.pdf) 和网站 [RISC-V Guide](https://marks.page/riscv/)。由于学过嵌入式课程，对于一些名词还是能理解的。真正的原版应该The RISC-V Instruction Set Manual ([Volume I](https://github.com/riscv/riscv-isa-manual/releases/download/Priv-v1.12/riscv-privileged-20211203.pdf), [Volume II](https://github.com/riscv/riscv-isa-manual/releases/download/Ratified-IMAFDQC/riscv-spec-20191213.pdf)) And [ABI for riscv](https://github.com/riscv-non-isa/riscv-elf-psabi-doc)
 
 | Notation   | Description                               |
 | :--------- | :---------------------------------------- |
