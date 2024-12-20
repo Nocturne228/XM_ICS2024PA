@@ -58,6 +58,15 @@ static void decode_operand(Decode *s, int *rd, word_t *src1, word_t *src2, word_
   }
 }
 
+#define HANDLE_JUMP(s, rd, dnpc, is_jalr) do { \
+    IFDEF(CONFIG_ITRACE, { \
+        if (is_jalr) { \
+            if ((s)->isa.inst == 0x00008067) trace_func_ret((s)->pc); \
+            else if (rd == 1) trace_func_call((s)->pc, dnpc); \
+            else if (rd == 0 && (s)->isa.inst == 0) trace_func_call((s)->pc, dnpc); \
+        } else if (rd == 1) trace_func_call((s)->pc, dnpc); \
+    }); \
+} while(0)
 static int32_t high_mul_i32(int32_t a, int32_t b);
 static int32_t high_mulsu_i32(int32_t a, uint32_t b);
 static uint64_t full_mul_u32(uint32_t a, uint32_t b, uint32_t *out_h);
@@ -115,22 +124,8 @@ static int decode_exec(Decode *s) {
   INSTPAT("??????? ????? ????? 101 ????? 11000 11", bge    , B, if ((sword_t)src1 >= (sword_t)src2) { s->dnpc = s->pc + imm; });
   INSTPAT("??????? ????? ????? 111 ????? 11000 11", bgeu   , B, if (src1 >= src2) { s->dnpc = s->pc + imm; });
   // *-------------------------------------------------------------------------------------------------------------------* //
-  INSTPAT("??????? ????? ????? ??? ????? 11011 11", jal    , J, s->dnpc = s->pc + imm; 
-                                                                IFDEF(CONFIG_ITRACE, { 
-                                                                  if (rd == 1) { // x1: return address for jumps
-                                                                    trace_func_call(s->pc, s->dnpc);
-                                                                  }
-                                                                }); R(rd) = s->pc + 4);
-  INSTPAT("??????? ????? ????? 000 ????? 11001 11", jalr   , I, s->dnpc = (src1 + imm) & ~(word_t)1; 
-                                                                IFDEF(CONFIG_ITRACE, {
-                                                                  if (s->isa.inst == 0x00008067) {
-                                                                    trace_func_ret(s->pc); // ret -> jalr x0, 0(x1)
-                                                                  } else if (rd == 1) {
-                                                                    trace_func_call(s->pc, s->dnpc);
-                                                                  } else if (rd == 0 && imm == 0) {
-                                                                    trace_func_call(s->pc, s->dnpc); // jr rs1 -> jalr x0, 0(rs1), which may be other control flow e.g. 'goto','for'
-                                                                  }
-                                                                }); R(rd) = s->pc + 4);
+  INSTPAT("??????? ????? ????? ??? ????? 11011 11", jal    , J, s->dnpc = s->pc + imm; HANDLE_JUMP(s, rd, s->dnpc, false); R(rd) = s->pc + 4);
+  INSTPAT("??????? ????? ????? 000 ????? 11001 11", jalr   , I, s->dnpc = (src1 + imm) & ~(word_t)1; HANDLE_JUMP(s, rd, s->dnpc, true); R(rd) = s->pc + 4);
   // *-------------------------------------------------------------------------------------------------------------------* //
   INSTPAT("??????? ????? ????? ??? ????? 01101 11", lui    , U, R(rd) = imm);
   INSTPAT("??????? ????? ????? ??? ????? 00101 11", auipc  , U, R(rd) = s->pc + imm);
