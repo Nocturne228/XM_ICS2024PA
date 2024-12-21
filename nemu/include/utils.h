@@ -30,15 +30,6 @@ typedef struct {
 
 extern NEMUState nemu_state;
 
-// ----------- trace -----------
-
-void trace_inst(word_t pc, uint32_t inst);
-void display_inst();
-void display_pread(paddr_t addr, int len);
-void display_pwrite(paddr_t addr, int len, word_t data);
-void trace_func_call(paddr_t pc, paddr_t target);
-void trace_func_ret(paddr_t pc);
-
 // ----------- timer -----------
 
 uint64_t get_time();
