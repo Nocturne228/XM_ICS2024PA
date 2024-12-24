@@ -3,7 +3,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 
-#define ftrace_write Log
+#define ftrace_write printf
 
 /**
  * @struct SymEntry

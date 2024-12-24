@@ -38,6 +38,26 @@ void display_pread(paddr_t addr, int len);
 void display_pwrite(paddr_t addr, int len, word_t data);
 void trace_func_call(paddr_t pc, paddr_t target, bool is_tail);
 void trace_func_ret(paddr_t pc);
+#ifdef CONFIG_FTRACE
+#define TRACE_JAL(s, rd, imm) do { \
+  if (rd == 1) { \
+    trace_func_call((s)->pc, (s)->dnpc, false); \
+  } \
+} while(0)
+
+#define TRACE_JALR(s, rd, imm, src1) do { \
+  if ((s)->isa.inst == 0x00008067) { \
+    trace_func_ret((s)->pc); \
+  } else if (rd == 1) { \
+    trace_func_call((s)->pc, (s)->dnpc, false); \
+  } else if (rd == 0 && imm == 0) { \
+    trace_func_call((s)->pc, (s)->dnpc, true); \
+  } \
+} while(0)
+#else
+#define TRACE_JAL(s, rd, imm) ((void)0)
+#define TRACE_JALR(s, rd, imm, src1) ((void)0)
+#endif
 
 // ----------- timer -----------
 
