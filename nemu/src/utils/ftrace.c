@@ -5,6 +5,14 @@
 
 #define ftrace_write Log
 
+/**
+ * @struct SymEntry
+ * @brief Represents a symbol table entry for storing function information
+ * @param name Function name string (max 32 chars)
+ * @param addr Memory address of the function
+ * @param info Symbol information byte
+ * @param size Size of the function in bytes
+ */
 typedef struct {
   char name[32];  // func name, 32 should be enough
   paddr_t addr;
@@ -16,6 +24,13 @@ SymEntry *symbol_tbl = NULL;  // dynamic allocated
 int symbol_tbl_size = 0;
 int call_depth = 0;
 
+/**
+ * @struct TailRecNode
+ * @brief Node structure for tracking tail recursion calls
+ * @param pc Program counter address
+ * @param depend Target function address this call depends on
+ * @param next Pointer to next node in list
+ */
 typedef struct tail_rec_node {
   paddr_t pc;
   paddr_t depend;
@@ -23,6 +38,12 @@ typedef struct tail_rec_node {
 } TailRecNode;
 TailRecNode *tail_rec_head = NULL;  // linklist with head, dynamic allocated
 
+/**
+ * @brief Reads ELF header from file
+ * @param fd File descriptor of opened ELF file
+ * @param eh Pointer to store ELF header
+ * @throws Assertion error if read fails or file is malformed
+ */
 static void read_elf_header(int fd, Elf32_Ehdr *eh) {
   assert(lseek(fd, 0, SEEK_SET) == 0);
   assert(read(fd, (void *)eh, sizeof(Elf32_Ehdr)) == sizeof(Elf32_Ehdr));
@@ -33,6 +54,10 @@ static void read_elf_header(int fd, Elf32_Ehdr *eh) {
   }
 }
 
+/**
+ * @brief Displays formatted ELF header information
+ * @param eh ELF header structure
+ */
 static void display_elf_hedaer(Elf32_Ehdr eh) {
   /* Storage capacity class */
   ftrace_write("Storage class\t= ");
@@ -243,12 +268,25 @@ static void display_elf_hedaer(Elf32_Ehdr eh) {
   ftrace_write("\n"); /* End of ELF header */
 }
 
+/**
+ * @brief Reads a section from ELF file
+ * @param fd File descriptor
+ * @param sh Section header
+ * @param dst Destination buffer for section data
+ * @throws Assertion error if read fails
+ */
 static void read_section(int fd, Elf32_Shdr sh, void *dst) {
   assert(dst != NULL);
   assert(lseek(fd, (off_t)sh.sh_offset, SEEK_SET) == (off_t)sh.sh_offset);
   assert(read(fd, dst, sh.sh_size) == sh.sh_size);
 }
 
+/**
+ * @brief Reads all section headers from ELF file
+ * @param fd File descriptor
+ * @param eh ELF header
+ * @param sh_tbl Array to store section headers
+ */
 static void read_section_headers(int fd, Elf32_Ehdr eh, Elf32_Shdr *sh_tbl) {
   assert(lseek(fd, eh.e_shoff, SEEK_SET) == eh.e_shoff);
   for (int i = 0; i < eh.e_shnum; i++) {
@@ -256,6 +294,12 @@ static void read_section_headers(int fd, Elf32_Ehdr eh, Elf32_Shdr *sh_tbl) {
   }
 }
 
+/**
+ * @brief Displays formatted section header information
+ * @param fd File descriptor
+ * @param eh ELF header
+ * @param sh_tbl Array of section headers
+ */
 static void display_section_headers(int fd, Elf32_Ehdr eh,
                                     Elf32_Shdr sh_tbl[]) {
   // warn: C99
@@ -274,12 +318,12 @@ static void display_section_headers(int fd, Elf32_Ehdr eh,
 
   for (int i = 0; i < eh.e_shnum; i++) {
     ftrace_write(" %03d ", i);
-    ftrace_write("0x%08x ", sh_tbl[i].sh_offset);   // 改为%08x
-    ftrace_write("0x%08x ", sh_tbl[i].sh_addr);     // 改为%08x
-    ftrace_write("0x%08x ", sh_tbl[i].sh_size);     // 改为%08x
-    ftrace_write("%-4d ", sh_tbl[i].sh_addralign);  // 改为%d
-    ftrace_write("0x%08x ", sh_tbl[i].sh_flags);    // 改为%08x
-    ftrace_write("0x%08x ", sh_tbl[i].sh_type);     // 改为%08x
+    ftrace_write("0x%08x ", sh_tbl[i].sh_offset);
+    ftrace_write("0x%08x ", sh_tbl[i].sh_addr);
+    ftrace_write("0x%08x ", sh_tbl[i].sh_size);
+    ftrace_write("%-4d ", sh_tbl[i].sh_addralign);
+    ftrace_write("0x%08x ", sh_tbl[i].sh_flags);
+    ftrace_write("0x%08x ", sh_tbl[i].sh_type);
     ftrace_write("%s\t", (sh_str + sh_tbl[i].sh_name));
     ftrace_write("\n");
   }
@@ -288,6 +332,13 @@ static void display_section_headers(int fd, Elf32_Ehdr eh,
   ftrace_write("\n"); /* end of section header table */
 }
 
+/**
+ * @brief Reads symbol table from ELF file
+ * @param fd File descriptor
+ * @param eh ELF header
+ * @param sh_tbl Section header table
+ * @param sym_idx Index of symbol table section
+ */
 static void read_symbol_table(int fd, Elf32_Ehdr eh, Elf32_Shdr sh_tbl[],
                               int sym_idx) {
   Elf32_Sym sym_tbl[sh_tbl[sym_idx].sh_size];
@@ -297,30 +348,39 @@ static void read_symbol_table(int fd, Elf32_Ehdr eh, Elf32_Shdr sh_tbl[],
   char str_tbl[sh_tbl[str_idx].sh_size];
   read_section(fd, sh_tbl[str_idx], str_tbl);
 
-  int sym_count = (sh_tbl[sym_idx].sh_size / sizeof(Elf64_Sym));
-  // log
+  int sym_count = (sh_tbl[sym_idx].sh_size / sizeof(Elf32_Sym));
+  
   ftrace_write("Symbol count: %d\n", sym_count);
   ftrace_write("====================================================\n");
   ftrace_write(" num    value            type size       name\n");
   ftrace_write("====================================================\n");
+  
+  symbol_tbl_size = sym_count;
+  symbol_tbl = malloc(sizeof(SymEntry) * sym_count);
+  
   for (int i = 0; i < sym_count; i++) {
-    ftrace_write(" %-3d    %08x %-4d %-10d %s\n", i, sym_tbl[i].st_value,
-                 ELF64_ST_TYPE(sym_tbl[i].st_info), sym_tbl[i].st_size,
+    symbol_tbl[i].addr = sym_tbl[i].st_value;
+    symbol_tbl[i].info = sym_tbl[i].st_info;
+    symbol_tbl[i].size = sym_tbl[i].st_size;
+    memset(symbol_tbl[i].name, 0, 32);
+    strncpy(symbol_tbl[i].name, str_tbl + sym_tbl[i].st_name, 31);
+
+    ftrace_write(" %-3d    %08x %-4d %-10d %s\n", 
+                 i, 
+                 sym_tbl[i].st_value,
+                 ELF32_ST_TYPE(sym_tbl[i].st_info),
+                 sym_tbl[i].st_size,
                  str_tbl + sym_tbl[i].st_name);
   }
   ftrace_write("====================================================\n\n");
-
-  // read
-  symbol_tbl_size = sym_count;
-  symbol_tbl = malloc(sizeof(SymEntry) * sym_count);
-  for (int i = 0; i < sym_count; i++) {
-    ftrace_write(" %-3d    %08x %-4d %-10d %s\n", i,  // 改为%08x和%d
-                 sym_tbl[i].st_value,
-                 ELF32_ST_TYPE(sym_tbl[i].st_info),  // 使用ELF32_ST_TYPE
-                 sym_tbl[i].st_size, str_tbl + sym_tbl[i].st_name);
-  }
 }
 
+/**
+ * @brief Reads all symbol tables from ELF file
+ * @param fd File descriptor
+ * @param eh ELF header
+ * @param sh_tbl Section header table
+ */
 static void read_symbols(int fd, Elf32_Ehdr eh, Elf32_Shdr sh_tbl[]) {
   for (int i = 0; i < eh.e_shnum; i++) {
     switch (sh_tbl[i].sh_type) {
@@ -332,13 +392,19 @@ static void read_symbols(int fd, Elf32_Ehdr eh, Elf32_Shdr sh_tbl[]) {
   }
 }
 
+/**
+ * @brief Initializes empty tail recursion tracking list
+ */
 static void init_tail_rec_list() {
   tail_rec_head = (TailRecNode *)malloc(sizeof(TailRecNode));
   tail_rec_head->pc = 0;
   tail_rec_head->next = NULL;
 }
 
-/* ELF64 as default */
+/**
+ * @brief Parses an ELF file and initializes symbol tables
+ * @param elf_file Path to ELF file
+ */
 void parse_elf(const char *elf_file) {
   if (elf_file == NULL) return;
 
@@ -361,6 +427,12 @@ void parse_elf(const char *elf_file) {
   close(fd);
 }
 
+/**
+ * @brief Locates function symbol by address
+ * @param target Target address to find
+ * @param is_call True if searching exact address, false if searching containing function
+ * @return Index of found symbol or -1 if not found
+ */
 static int find_symbol_func(paddr_t target, bool is_call) {
   int i;
   for (i = 0; i < symbol_tbl_size; i++) {
@@ -377,6 +449,11 @@ static int find_symbol_func(paddr_t target, bool is_call) {
   return i < symbol_tbl_size ? i : -1;
 }
 
+/**
+ * @brief Adds new tail recursion tracking node
+ * @param pc Program counter of call site
+ * @param depend Target function address
+ */
 static void insert_tail_rec(paddr_t pc, paddr_t depend) {
   TailRecNode *node = (TailRecNode *)malloc(sizeof(TailRecNode));
   node->pc = pc;
@@ -385,12 +462,21 @@ static void insert_tail_rec(paddr_t pc, paddr_t depend) {
   tail_rec_head->next = node;
 }
 
+/**
+ * @brief Removes and frees top tail recursion tracking node
+ */
 static void remove_tail_rec() {
   TailRecNode *node = tail_rec_head->next;
   tail_rec_head->next = node->next;
   free(node);
 }
 
+/**
+ * @brief Traces a function call
+ * @param pc Program counter of call site
+ * @param target Target function address
+ * @param is_tail True if this is a tail call
+ */
 void trace_func_call(paddr_t pc, paddr_t target, bool is_tail) {
   if (symbol_tbl == NULL) return;
 
@@ -408,6 +494,10 @@ void trace_func_call(paddr_t pc, paddr_t target, bool is_tail) {
   }
 }
 
+/**
+ * @brief Traces a function return
+ * @param pc Program counter of return site
+ */
 void trace_func_ret(paddr_t pc) {
   if (symbol_tbl == NULL) return;
 
