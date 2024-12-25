@@ -373,11 +373,13 @@ int sprintf(char *out, const char *fmt, ...) {
 
 对于一些复杂的情况，如果用 gdb 一步一步查看过程，效率会很低。我们以前写算法题的时候也会习惯用 `printf` 打印出我们关心的信息的变化过程。记录状态机的转移过程，也就是程序执行过程信息的作法称为[踪迹(trace)](https://en.wikipedia.org/wiki/Tracing_(software))。
 
+>   **来自未来的提醒：我在这里修改了部分代码，因为如果我们在 menuconfig 时没有选择这些 tracer 功能，则会导致一些未声明或声明后未调用的问题，因此添加了条件宏来避免这种情况**
+
 ## itrace
 
 NEMU 已经实现了一个简单的 itrace 功能，作用是记录系统执行的每一条指令并输出到 log 文件中。文档没有给出详细描述，而是留作了一个 RTFC 的任务。
 
-既然 itrace 会记录 `inst_fetch` 取到的所有指令，那么只需要记得 NEMU 中的指令执行过程就好了。观察 `isa_exec_once` 函数中没有相关代码，而 `cpu-exec.c` 中的 `exec_once` 中发现在调用 `isa_exec_once` 后，会根据宏 `COONFIG_ITRACE` 进行一些操作。根据我们前面对 Kconfig 的了解，这自然就是在 `make menuconfig` 时设置的选项，itrace 的源码在这里没错了。
+既然 itrace 会记录 `inst_fetch` 取到的所有指令，那么只需要记得 NEMU 中的指令执行过程就好了。观察 `isa_exec_once` 函数中没有相关代码，而 `cpu-exec.c` 中的 `exec_once` 中发现在调用 `isa_exec_once` 后，会根据宏 `CONFIG_ITRACE` 进行一些操作。根据我们前面对 Kconfig 的了解，这自然就是在 `make menuconfig` 时设置的选项，itrace 的源码在这里没错了。
 
 阅读源码可以发现，在执行指令后，系统会记录指令及其反汇编内容，添加到 `Decode s` 中的 `logbuf` 位置，最后在 `trace_and_difftest` 中调用 `log_write` 写入日志文件。根据宏的描述，我们也可以修改 menuconfig 的配置，使其打印在屏幕上。
 
@@ -391,7 +393,7 @@ NEMU 并没有给出待实现的 API，这是我们第一次自己添加一个�
 #include <common.h>
 
 #define MAX_IRINGBUF 16
-
+#ifdef ITRACE
 typedef struct {
   word_t pc;
   uint32_t inst;
@@ -431,6 +433,7 @@ void display_inst() {
   } while ((i = (i + 1) % MAX_IRINGBUF) != end);
   puts(ANSI_NONE);
 }
+#endif
 ```
 
 这里创建了一个数组，其中的元素保存 pc 和对应的指令。在 `trace_inst` 中，只需要利用 `%` 运算，就可以在这个数组中以环形记录指令，保持顺序的正确。最后定义一个 `display_inst` 函数用于打印指令和反汇编结果，指示出错位置。
@@ -449,7 +452,7 @@ int isa_exec_once(Decode *s) {
 
 ```c
 void assert_fail_msg() {
-  display_inst();
+  IFDEF(CONFIG_ITRACE, display_inst());
   // isa_reg_display();
   statistic();
 }
@@ -688,7 +691,11 @@ make ARCH=$ISA-nemu run
 ---
 
 > **捕捉死循环**
-> 
-> 当用户程序陷入死循环时, 让用户程序暂停下来, 并输出相应的提示信息
 >
-> 应该如何实现? 
+> >   当用户程序陷入死循环时, 让用户程序暂停下来, 并输出相应的提示信息
+>
+> [死循环](https://en.wikipedia.org/wiki/Infinite_loop)（Infinite Loop）就是系统无终止地循环执行一串指令。如果了解过图灵的理论就会知道，死循环的检测是一个具有不确定性的[停机问题](https://en.wikipedia.org/wiki/Halting_problem)，也就是我们不可能有通用的方法来检测和解决死循环。因此要做的是工程上的考量，[这里](https://cs.stackexchange.com/questions/11645/can-a-runtime-environment-detect-an-infinite-loop)有一些解决方法的讨论。
+>
+> 如果循环往复地执行同一串指令，则 PC 将会多次访问同一地址。我们或许可以利用环形缓冲区这样的数据结构维护一定大小的空间，记录出现过的 PC 值，如果 PC 值出现次数超过一定的阈值，那么就认为存在死循环，此时调用 `nemu_trap()` 并输出环形缓冲区中的指令。
+
+> PA2.2 DONE∎
