@@ -2,7 +2,7 @@
 
 #define MAX_IRINGBUF 16
 
-#ifdef ITRACE
+#ifdef CONFIG_ITRACE
 typedef struct {
   word_t pc;
   uint32_t inst;
