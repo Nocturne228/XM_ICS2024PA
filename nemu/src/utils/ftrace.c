@@ -3,6 +3,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 
+#ifdef CONFIG_FTRACE
 #define ftrace_write printf
 
 /**
@@ -519,3 +520,4 @@ void trace_func_ret(paddr_t pc) {
     }
   }
 }
+#endif

@@ -93,7 +93,7 @@ static void statistic() {
 }
 
 void assert_fail_msg() {
-  display_inst();
+  IFDEF(CONFIG_ITRACE, display_inst());
   // isa_reg_display();
   statistic();
 }

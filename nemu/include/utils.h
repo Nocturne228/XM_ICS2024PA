@@ -32,13 +32,17 @@ extern NEMUState nemu_state;
 
 // ----------- trace -----------
 
+#ifdef CONFIG_ITERCE
 void trace_inst(word_t pc, uint32_t inst);
 void display_inst();
+#endif
+#ifdef CONFIG_MTRACE
 void display_pread(paddr_t addr, int len);
 void display_pwrite(paddr_t addr, int len, word_t data);
+#endif
+#ifdef CONFIG_FTRACE
 void trace_func_call(paddr_t pc, paddr_t target, bool is_tail);
 void trace_func_ret(paddr_t pc);
-#ifdef CONFIG_FTRACE
 #define TRACE_JAL(s, rd, imm) do { \
   if (rd == 1) { \
     trace_func_call((s)->pc, (s)->dnpc, false); \

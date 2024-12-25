@@ -2,6 +2,7 @@
 
 #define MAX_IRINGBUF 16
 
+#ifdef ITRACE
 typedef struct {
   word_t pc;
   uint32_t inst;
@@ -41,3 +42,4 @@ void display_inst() {
   } while ((i = (i + 1) % MAX_IRINGBUF) != end);
   puts(ANSI_NONE);
 }
+#endif
