@@ -368,3 +368,327 @@ int sprintf(char *out, const char *fmt, ...) {
   PRINTF_IMPL(_vsprintf(out, fmt, ap));
 }
 ```
+
+# trace
+
+对于一些复杂的情况，如果用 gdb 一步一步查看过程，效率会很低。我们以前写算法题的时候也会习惯用 `printf` 打印出我们关心的信息的变化过程。记录状态机的转移过程，也就是程序执行过程信息的作法称为[踪迹(trace)](https://en.wikipedia.org/wiki/Tracing_(software))。
+
+## itrace
+
+NEMU 已经实现了一个简单的 itrace 功能，作用是记录系统执行的每一条指令并输出到 log 文件中。文档没有给出详细描述，而是留作了一个 RTFC 的任务。
+
+既然 itrace 会记录 `inst_fetch` 取到的所有指令，那么只需要记得 NEMU 中的指令执行过程就好了。观察 `isa_exec_once` 函数中没有相关代码，而 `cpu-exec.c` 中的 `exec_once` 中发现在调用 `isa_exec_once` 后，会根据宏 `COONFIG_ITRACE` 进行一些操作。根据我们前面对 Kconfig 的了解，这自然就是在 `make menuconfig` 时设置的选项，itrace 的源码在这里没错了。
+
+阅读源码可以发现，在执行指令后，系统会记录指令及其反汇编内容，添加到 `Decode s` 中的 `logbuf` 位置，最后在 `trace_and_difftest` 中调用 `log_write` 写入日志文件。根据宏的描述，我们也可以修改 menuconfig 的配置，使其打印在屏幕上。
+
+## iringbuf
+
+显然并不是所有指令都值得关心，一般来说我们只想看到出错位置附近的指令。也就是说需要有一个数据结构，不断记录一定数量的指令，当超过数量时，数据结构中最新的指令应该覆盖掉最早执行的指令，同时输出顺序正确。可以维护一个简单的数据结构，称为环形缓冲区（ring buffer）
+
+NEMU 并没有给出待实现的 API，这是我们第一次自己添加一个新文件去编写新功能。我选择在 `nemu/src/utils` 下新建一个 `iringbuf.c` 文件，因为相关的日志打印和反汇编都定义在这里。只需要再头文件中包含 `utils.h` 并进行声明就可以在其他地方使用了。实现也很简单：
+
+```c
+#include <common.h>
+
+#define MAX_IRINGBUF 16
+
+typedef struct {
+  word_t pc;
+  uint32_t inst;
+} ItraceNode;
+
+ItraceNode iringbuf[MAX_IRINGBUF];
+int p_cur = 0;
+bool full = false;
+
+void trace_inst(word_t pc, uint32_t inst) {
+  iringbuf[p_cur].pc = pc;
+  iringbuf[p_cur].inst = inst;
+  p_cur = (p_cur + 1) % MAX_IRINGBUF;
+  full = full || p_cur == 0;
+}
+
+void display_inst() {
+  if (!full && !p_cur) return;
+
+  int end = p_cur;
+  int i = full ? p_cur : 0;
+
+  void disassemble(char *str, int size, uint64_t pc, uint8_t *code, int nbyte);
+  char buf[128];  // 128 should be enough!
+  char *p;
+  Log("Most recently executed instructions");
+  do {
+    p = buf;
+    p += sprintf(buf, "%s" FMT_WORD ": %08x ",
+                 (i + 1) % MAX_IRINGBUF == end ? " --> " : "     ",
+                 iringbuf[i].pc, iringbuf[i].inst);
+    disassemble(p, buf + sizeof(buf) - p, iringbuf[i].pc,
+                (uint8_t *)&iringbuf[i].inst, 4);
+
+    if ((i + 1) % MAX_IRINGBUF == end) printf(ANSI_FG_RED);
+    puts(buf);
+  } while ((i = (i + 1) % MAX_IRINGBUF) != end);
+  puts(ANSI_NONE);
+}
+```
+
+这里创建了一个数组，其中的元素保存 pc 和对应的指令。在 `trace_inst` 中，只需要利用 `%` 运算，就可以在这个数组中以环形记录指令，保持顺序的正确。最后定义一个 `display_inst` 函数用于打印指令和反汇编结果，指示出错位置。
+
+完成 `iringbuf` 后需要在其他部分添加记录和打印指令的代码。在 `isa_exec_once` 中记录 `inst_fetch` 的指令：
+
+```c
+int isa_exec_once(Decode *s) {
+  s->isa.inst = inst_fetch(&s->snpc, 4);
+  IFDEF(CONFIG_ITRACE, trace_inst(s->pc, s->isa.inst));
+  return decode_exec(s);
+}
+```
+
+另外在 `cpu_exec.c` 中的 `assert_fail_msg` 函数中进行指令的打印（为了避免输出太长，注释掉了打印寄存器的功能）
+
+```c
+void assert_fail_msg() {
+  display_inst();
+  // isa_reg_display();
+  statistic();
+}
+```
+
+我选择在 NEMU 处于 `BAD TRAP` 和 `ABORT` 时打印信息，因此在 `cpu_exec` 中添加：
+
+```c
+  switch (nemu_state.state) {
+    case NEMU_RUNNING: nemu_state.state = NEMU_STOP; break;
+
+    case NEMU_END: case NEMU_ABORT:
+      Log("nemu: %s at pc = " FMT_WORD,
+          (nemu_state.state == NEMU_ABORT ? ANSI_FMT("ABORT", ANSI_FG_RED) :
+           (nemu_state.halt_ret == 0 ? ANSI_FMT("HIT GOOD TRAP", ANSI_FG_GREEN) :
+            ANSI_FMT("HIT BAD TRAP", ANSI_FG_RED))),
+          nemu_state.halt_pc);
+      // fall through
+      if (nemu_state.state == NEMU_ABORT || nemu_state.halt_ret != 0) assert_fail_msg();
+    case NEMU_QUIT: statistic();
+  }
+```
+
+## mtrace
+
+这个功能记录了对内存的读写，只需要在`paddr_read()`和`paddr_write()`中进行记录即可。
+
+开启 mtrace 将会产生大量的输出，因此最好可以在不需要的时候关闭 mtrace。文档暗示了我们参考 itrace 的实现，实际上就是添加一个编译选项，仅当我们设置输出时才会打印信息。在 Kconfig 文件中 `ITRACE` 下添加 
+
+```Kconfig
+config MTRACE
+  depends on TRACE
+  bool "Enable memory tracer"
+  default n
+```
+
+这样就可以在 `make menuconfig` 时进行设置了。mtrace 的实现也很简单
+
+```c
+void display_pread(paddr_t addr, int len) {
+  printf(ANSI_FG_CYAN "MTRACE: pread at " FMT_PADDR " len=%d\n" ANSI_NONE, addr, len);
+}
+
+void display_pwrite(paddr_t addr, int len, word_t data) {
+  printf(ANSI_FG_CYAN "MTRACE: pwrite at " FMT_PADDR " len=%d, data=" FMT_WORD "\n" ANSI_NONE, addr, len, data);
+}
+```
+
+然后在 `paddr.c` 中添加
+
+```c
+word_t paddr_read(paddr_t addr, int len) {
+  IFDEF(CONFIG_MTRACE, display_pread(addr, len));
+  if (likely(in_pmem(addr))) return pmem_read(addr, len);
+  IFDEF(CONFIG_DEVICE, return mmio_read(addr, len));
+  out_of_bound(addr);
+  return -1;
+}
+
+void paddr_write(paddr_t addr, int len, word_t data) {
+  IFDEF(CONFIG_MTRACE, display_pwrite(addr, len, data));
+  if (likely(in_pmem(addr))) { pmem_write(addr, len, data); return; }
+  IFDEF(CONFIG_DEVICE, mmio_write(addr, len, data); return);
+  out_of_bound(addr);
+}
+```
+
+## ftrace
+
+itrace 和 mtrace 是底层状态机视角的追踪，无法体现程序中包含的语义行为。因为在程序中，函数显然是携带语义信息的，这就需要实现一个 ftrace 工具，追踪程序执行过程中的函数调用和返回。
+
+>   这其实并不困难, 因为itrace已经能够追踪程序执行的所有指令了, 要实现ftrace, 我们只需要关心函数调用和返回相关的指令就可以了. 我们可以在函数调用指令中记录目标地址, 表示将要调用某个函数; 然后在函数返回指令中记录当前PC, 表示将要从PC所在的函数返回. 我们很容易在相关指令的实现中添加代码来实现这些功能. 但目标地址和PC值仍然缺少程序语义, 如果我们能把它们翻译成函数名, 就更容易理解了!
+
+我们需要根据 ELF 文件中的符号表（symbol table）来通过代码段地址得到它对应的函数。
+
+以 `cpu-tests` 中 `add` 这个用户程序为例：
+
+```shell
+riscv64-linux-gnu-readelf -a add-riscv32-nemu.elf
+```
+
+这个输出对于理解 ELF 文件非常有用，但是现在只需要关心符号表的信息
+
+```
+Symbol table '.symtab' contains 35 entries:
+   Num:    Value  Size Type    Bind   Vis      Ndx Name
+     0: 00000000     0 NOTYPE  LOCAL  DEFAULT  UND
+     1: 80000000     0 SECTION LOCAL  DEFAULT    1 .text
+     2: 80000128     0 SECTION LOCAL  DEFAULT    2 .rodata
+```
+
+在这里找到 `Type` 属性为 `FUNC` 的表项，给出了关于程序中的函数的信息：
+
+```
+    16: 80000108    32 FUNC    GLOBAL HIDDEN     1 _trm_init
+    25: 80000010    24 FUNC    GLOBAL HIDDEN     1 check
+    27: 80000000    16 FUNC    GLOBAL DEFAULT    1 _start
+    29: 80000028   212 FUNC    GLOBAL HIDDEN     1 main
+    33: 800000fc    12 FUNC    GLOBAL HIDDEN     1 halt
+```
+
+观察这里的函数正是系统运行 C 程序调用的函数。
+
+>   什么才是真正的*符号*（symbol）？
+>
+>   [这篇文章](https://intezer.com/blog/malware-analysis/executable-linkable-format-101-part-2-symbols/)讨论了 ELF 文件中的符号。代码中的函数或变量会保存为文件的符号信息，在编译成机器码时作为符号引用标识地址和偏移量。链接器通常与符号表交互，以便在链接时匹配/引用/修改 ELF 对象中的给定符号。
+
+查看 readelf 中的 Header Section：
+
+```elf
+Section Headers:
+  [Nr] Name              Type            Addr     Off    Size   ES Flg Lk Inf Al
+  [ 0]                   NULL            00000000 000000 000000 00      0   0  0
+  [ 1] .text             PROGBITS        80000000 001000 000128 00  AX  0   0  4
+  [ 2] .rodata           PROGBITS        80000128 001128 000040 00   A  0   0  4
+  [ 3] .data.ans         PROGBITS        80000168 001168 000100 00  WA  0   0  4
+  [ 4] .data.test_data   PROGBITS        80000268 001268 000020 00  WA  0   0  4
+  [ 5] .comment          PROGBITS        00000000 001288 00002b 01  MS  0   0  1
+  [ 6] .riscv.attributes RISCV_ATTRIBUTE 00000000 0012b3 00001f 00      0   0  1
+  [ 7] .symtab           SYMTAB          00000000 0012d4 000230 10      8  16  4
+  [ 8] .strtab           STRTAB          00000000 001504 0000a6 00      0   0  1
+  [ 9] .shstrtab         STRTAB          00000000 0015aa 00005e 00      0   0  1
+```
+
+可以看到字符串表 .strtab 位于偏移 0x1504 处，使用 `hd` 查看 elf 文件的十六进制编码格式，找到对应位置的编码
+
+```shell
+hd add-riscv32-nemu.elf
+```
+
+```
+00001500  11 02 04 00 00 73 74 61  72 74 2e 6f 00 24 78 00  |.....start.o.$x.|
+00001510  61 64 64 2e 63 00 74 72  6d 2e 63 00 6d 61 69 6e  |add.c.trm.c.main|
+00001520  61 72 67 73 00 5f 74 72  6d 5f 69 6e 69 74 00 5f  |args._trm_init._|
+...
+```
+
+要做的显而易见了：解析 ELF 文件，找到 `.symtab` 中所有函数符号，根据 `.strtab` 中的地址信息寻找对应地址的对应函数，将函数符号与函数名字符串联系起来，输出具有语义的函数调用信息。
+
+# AM
+
+就像我们都希望写有标准答案的试卷一样，如果单纯在自己实现的 NEMU 上运行程序，总对程序是否正确不是很有信心。如果要找一个系统的标准答案，那自然是我们本机的真实硬件，显然真实的硬件实现必然是要被相信是正确的。`abstract-machine`中有一个特殊的架构叫`native`，是用GNU/Linux默认的运行时环境来实现的AM API，这就是提供的标准答案。 
+
+>   **如何生成native的可执行文件**
+>
+>   很简单，关键代码是
+>
+>   ```makefile
+>   ### Rule (link): objects (*.o) and libraries (*.a) -> IMAGE.elf, the final ELF binary to be packed into image (ld)
+>   $(IMAGE).elf: $(LINKAGE) $(LDSCRIPTS)
+>   	@echo \# Creating image [$(ARCH)]
+>   	@echo + LD "->" $(IMAGE_REL).elf
+>   ifneq ($(filter $(ARCH),native),)
+>   	@$(CXX) -o $@ -Wl,--whole-archive $(LINKAGE) -Wl,-no-whole-archive $(LDFLAGS_CXX)
+>   else
+>   	@$(LD) $(LDFLAGS) -o $@ --start-group $(LINKAGE) --end-group
+>   endif
+>   ```
+>
+>   -   如果选择本地架构（`native`），则使用 `C++` 编译器 (`$(CXX)`) 进行链接，并且使用 `--whole-archive` 强制链接所有库。
+>
+>   -   如果选择交叉编译（不是本地架构），则使用 `ld` 链接器进行链接，并通过 `--start-group` 和 `--end-group` 确保库的正确链接。
+>
+>   目标是生成的 ELF 文件，这一步则是最后的链接规则。
+
+>   **奇怪的错误码**
+>
+>   `make` 通过在执行每个命令时检查命令的退出状态来确定是否有错误发生。具体步骤如下：
+>
+>   -   每个命令执行完毕后，系统会返回一个退出状态码。
+>   -   `make` 会检查命令的退出码。如果返回值是非零，表示命令执行失败，`make` 会停止执行当前目标的后续命令，并将错误码传递给上级。
+>
+>   ```makefile
+>   $(IMAGE).elf: $(LINKAGE) $(LDSCRIPTS)
+>   	@echo "Creating image"
+>   	@$(LD) $(LDFLAGS) -o $@ --start-group $(LINKAGE) --end-group
+>   ```
+>
+>   在上面的代码中，如果 `$(LD)` 命令失败，`make` 会捕获该失败并返回退出码 `1`（或其他非零值）。
+
+# Differential Testing
+
+简单来说就是对比标准答案，看有哪些不同（我可太擅长干这事了）在软件测试领域称为[differential testing](https://en.wikipedia.org/wiki/Differential_testing)。要检查指令的实现是否正确，只要检查执行指令之后DUT和REF的状态是否一致就可以了。
+
+>   通常来说, 进行DiffTest需要提供一个和DUT(Design Under Test, 测试对象) 功能相同但实现方式不同的REF(Reference, 参考实现), 然后让它们接受相同的有定义的输入, 观测它们的行为是否相同.
+
+在 menuconfig 中打开 Enable differential testing，然后重新编译NEMU并运行即可，NEMU的配置系统会根据ISA选择合适的模拟器作为REF，RISC-V 选用 Spike，RISC-V 社区的一个全系统模拟器。
+
+```bash
+sudo apt install device-tree-compiler -y
+```
+
+我们需要实现的是在`nemu/src/isa/$ISA/difftest/dut.c`中定义的 `isa_difftest_checkregs()`函数：
+
+```c
+bool isa_difftest_checkregs(CPU_state *ref_r, vaddr_t pc) {
+  int reg_num = ARRLEN(cpu.gpr);
+  for (int i = 0; i < reg_num; i++) {
+    if (ref_r->gpr[i] != cpu.gpr[i]) {
+      return false;
+    }
+  }
+  if (ref_r->pc != cpu.pc) {
+    return false;
+  }
+  return true;
+}
+```
+
+# Regression Testing
+
+当我们通过某个实例，又添加了某项功能时，我们并不知道新功能是否会对系统原有功能产生影响，这就需要再运行一遍做过的测试，这个过程称为[回归测试](https://en.wikipedia.org/wiki/Regression_testing)。`cpu-tests`提供了一键回归测试的功能:
+
+```bash
+make ARCH=$ISA-nemu run
+```
+
+
+
+>   NEMU是一个用来执行其它程序的程序. 在可计算理论中, 这种程序有一个专门的名词, 叫通用程序(Universal Program), 它的通俗含义是: 其它程序能做的事情, 它也能做. 通用程序的存在性有专门的证明. 
+>
+>   我们可以在计算机上做各种各样的事情, 其背后都蕴含着通用程序的思想: NEMU和各种模拟器只不过是通用程序的实例化, 我们也可以毫不夸张地说, 计算机就是一个通用程序的实体化. 通用程序的存在性为计算机的出现奠定了理论基础, 是可计算理论中一个极其重要的结论, 如果通用程序的存在性得不到证明, 我们就没办法放心地使用计算机, 同时也不能义正辞严地说"机器永远是对的".
+>
+>   在1983年, [Martin Davis教授](http://en.wikipedia.org/wiki/Martin_Davis)就在他出版的"Computability, complexity, and languages: fundamentals of theoretical computer science" 一书中提出了一种仅有三种指令的程序设计语言L语言, 并且证明了L语言和其它所有编程语言的计算能力等价. L语言中的三种指令分别是:
+>
+>   ```
+>   V = V + 1
+>   V = V - 1
+>   IF V != 0 GOTO LABEL
+>   ```
+>
+>   Martin Davis教授还证明了, 在不考虑物理限制的情况下(认为内存容量无限多, 每一个内存单元都可以存放任意大的数), 用L语言也可以编写出一个和NEMU类似的通用程序! 而且这个用L语言编写的通用程序的框架, 竟然还和NEMU中的`cpu_exec()`函数如出一辙: 取指, 译码, 执行... 这其实并不是巧合, 而是[模拟(Simulation)](http://en.wikipedia.org/wiki/Simulation#Computer_science)在计算机科学中的应用.
+>
+>   早在Martin Davis教授提出L语言之前, 科学家们就已经在探索什么问题是可以计算的了. 回溯到19世纪30年代, 为了试图回答这个问题, 不同的科学家提出并研究了不同的计算模型, 包括[Gödel](http://en.wikipedia.org/wiki/Godel), [Herbrand](http://en.wikipedia.org/wiki/Jacques_Herbrand)和[Kleen](http://en.wikipedia.org/wiki/Stephen_Cole_Kleene)研究的[递归函数](http://en.wikipedia.org/wiki/Μ-recursive_function), [Church](http://en.wikipedia.org/wiki/Alonzo_Church)提出的[λ-演算](http://en.wikipedia.org/wiki/Lambda_calculus), [Turing](http://en.wikipedia.org/wiki/Alan_Turing)提出的[图灵机](http://en.wikipedia.org/wiki/Turing_machine), 后来发现这些模型在计算能力上都是等价的; 到了40年代, 计算机就被制造出来了. 后来甚至还有人证明了, 如果使用无穷多个算盘拼接起来进行计算, 其计算能力和图灵机等价! 我们可以从中得出一个推论, 通用程序在不同的计算模型中有不同的表现形式. 计算的极限](https://zhuanlan.zhihu.com/p/270155475)这一系列科普文章叙述了可计算理论的发展过程
+
+---
+
+> **捕捉死循环**
+> 
+> 当用户程序陷入死循环时, 让用户程序暂停下来, 并输出相应的提示信息
+>
+> 应该如何实现? 
