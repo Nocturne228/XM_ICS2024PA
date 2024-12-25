@@ -4,13 +4,13 @@
 #include <stdarg.h>
 
 #if !defined(__ISA_NATIVE__) || defined(__NATIVE_USE_KLIB__)
+#define _BUF_SIZE 1024
 
 #define PRINTF_IMPL(expr) \
-    va_list ap; \
-    va_start(ap, fmt); \
-    int result = (expr); \
-    va_end(ap); \
-    return result;
+  va_list ap;             \
+  va_start(ap, fmt);      \
+  int ret = (expr);    \
+  va_end(ap);
 
 #define do_div(n, base)                         \
   ({                                            \
@@ -34,7 +34,32 @@ static char *number(char *str, unsigned long long num, int base, int size,
 static int skip_atoi(const char **s);
 int _vsprintf(char *out, const char *fmt, va_list ap);
 
-int printf(const char *fmt, ...) { panic("Not implemented"); }
+/**
+ * @brief Print formatted output to stdout
+ *
+ * This function prints formatted output to stdout using the putch function.
+ * It supports various format specifiers including:
+ * - %c for characters
+ * - %s for strings
+ * - %d, %i for signed integers
+ * - %u for unsigned integers
+ * - %x, %X for hexadecimal numbers
+ * - %o for octal numbers
+ * - %p for pointers
+ *
+ * @param fmt Format string containing text and format specifiers
+ * @param ... Variable arguments corresponding to format specifiers
+ * @return Number of characters printed, or negative value on error
+ */
+int printf(const char *fmt, ...) {
+  char _buf[_BUF_SIZE];
+  PRINTF_IMPL(_vsprintf(_buf, fmt, ap))
+  
+  for (int i = 0; i < ret; i++) {
+    putch(_buf[i]);
+  }
+  return ret;
+}
 
 int vsprintf(char *out, const char *fmt, va_list ap) {
   return _vsprintf(out, fmt, ap);
@@ -42,6 +67,7 @@ int vsprintf(char *out, const char *fmt, va_list ap) {
 
 int sprintf(char *out, const char *fmt, ...) {
   PRINTF_IMPL(_vsprintf(out, fmt, ap));
+  return ret;
 }
 
 int snprintf(char *out, size_t n, const char *fmt, ...) {
