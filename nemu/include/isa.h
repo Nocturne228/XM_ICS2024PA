@@ -55,4 +55,28 @@ word_t isa_query_intr();
 bool isa_difftest_checkregs(CPU_state *ref_r, vaddr_t pc);
 void isa_difftest_attach();
 
+// function tracer
+#ifdef CONFIG_FTRACE
+void trace_func_call(paddr_t pc, paddr_t target, bool is_tail);
+void trace_func_ret(paddr_t pc);
+#define TRACE_JAL(s, rd, imm) do { \
+  if (rd == 1) { \
+    trace_func_call((s)->pc, (s)->dnpc, false); \
+  } \
+} while(0)
+
+#define TRACE_JALR(s, rd, imm, src1) do { \
+  if ((s)->isa.inst == 0x00008067) { \
+    trace_func_ret((s)->pc); \
+  } else if (rd == 1) { \
+    trace_func_call((s)->pc, (s)->dnpc, false); \
+  } else if (rd == 0 && imm == 0) { \
+    trace_func_call((s)->pc, (s)->dnpc, true); \
+  } \
+} while(0)
+#else
+#define TRACE_JAL(s, rd, imm) ((void)0)
+#define TRACE_JALR(s, rd, imm, src1) ((void)0)
+#endif
+
 #endif
