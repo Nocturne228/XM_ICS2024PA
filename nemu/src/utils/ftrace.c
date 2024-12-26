@@ -4,7 +4,7 @@
 #include <unistd.h>
 
 #ifdef CONFIG_FTRACE
-#define ftrace_write printf
+#define ftrace_write log_write
 
 /**
  * @struct SymEntry
