@@ -24,13 +24,13 @@ function init() {
 
   if [ $4 == "true" ] ; then
     rm -rf $3/.git
-    git add -A $3
-    git commit -am "$1 $2 initialized"$'\n\n'"$log"
+    # git add -A $3
+    # git commit -am "$1 $2 initialized"$'\n\n'"$log"
   else
     sed -i -e "/^\/$3/d" .gitignore
     echo "/$3" >> .gitignore
-    git add -A .gitignore
-    git commit --no-verify --allow-empty -am "$1 $2 initialized without tracing"$'\n\n'"$log"
+    # git add -A .gitignore
+    # git commit --no-verify --allow-empty -am "$1 $2 initialized without tracing"$'\n\n'"$log"
   fi
 
   if [ $5 ] ; then
