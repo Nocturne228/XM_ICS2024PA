@@ -21,27 +21,44 @@
 #include <regex.h>
 
 //? Update the parenthesis count (increment for '(' and decrement for ')')
-#define UPDATE_PARENTHESIS(c, tokens, i) \
-  do { ((tokens[i].type == '(') ? (c)++ : ((tokens[i].type == ')') ? (c)-- : 0)); } while (0)
+#define UPDATE_PARENTHESIS(c, tokens, i)                                       \
+  do {                                                                         \
+    ((tokens[i].type == '(') ? (c)++ : ((tokens[i].type == ')') ? (c)-- : 0)); \
+  } while (0)
 
 //? Check if the count satisfies the given condition, return false if true
-#define IF_COND(c, condition) \
-  do { if (condition) return false; } while (0)
+#define IF_COND(c, condition)    \
+  do {                           \
+    if (condition) return false; \
+  } while (0)
 
 //? Check if the parentheses count is balanced (i.e., the count is zero)
-#define IF_UNBALANCED(c) \
-  do { if (c != 0) return false; } while (0)
+#define IF_UNBALANCED(c)      \
+  do {                        \
+    if (c != 0) return false; \
+  } while (0)
 
 //? for loop with 2 function
 #define FOR_LOOP(p, q, FUN1, FUN2) \
-  do { for (int i = p; i <= q; i++) { FUN1; FUN2; } } while (0)
+  do {                             \
+    for (int i = p; i <= q; i++) { \
+      FUN1;                        \
+      FUN2;                        \
+    }                              \
+  } while (0)
 
-//? Traverse the tokens from index p to q, update count, and check for mismatches
-#define PROCESS_PARENS(p, q, c, condition) \
-  do { FOR_LOOP(p, q, UPDATE_PARENTHESIS(c, tokens, i), IF_COND(c, condition)); } while (0)
+//? Traverse the tokens from index p to q, update count, and check for
+//mismatches
+#define PROCESS_PARENS(p, q, c, condition)                                   \
+  do {                                                                       \
+    FOR_LOOP(p, q, UPDATE_PARENTHESIS(c, tokens, i), IF_COND(c, condition)); \
+  } while (0)
 
-#define CHECK(p, q, c, cond) \
-  do { PROCESS_PARENS(p, q, c, cond); IF_UNBALANCED(c); } while (0)
+#define CHECK(p, q, c, cond)       \
+  do {                             \
+    PROCESS_PARENS(p, q, c, cond); \
+    IF_UNBALANCED(c);              \
+  } while (0)
 
 enum {
   TK_NOTYPE = 256,
@@ -208,40 +225,55 @@ static bool make_token(char *e) {
   return true;
 }
 
-bool check_subexpr(int p, int q);
-int find_dominant_op(int p, int q);
-uint32_t eval(int p, int q);
-bool check_parentheses(int p, int q);
+/*
+ * Check if the parentheses are legal
+ * One-to-one match
+ */
+bool check_parentheses(int p, int q) {
+  int flag = 0;
+  CHECK(p, q, flag, flag < 0);
+  // CHECK_PARENTHESIS_MATCH(flag);
+  return true;
+}
 
-word_t expr(char *e, bool *success) {
-  if (!make_token(e)) {
-    *success = false;
-    return 0;
-  } else {
-    *success = true;
+/*
+ * Eliminating redundant brackets
+ */
+bool check_subexpr(int p, int q) {
+  int check = 0;
+  if (tokens[p].type != '(' || tokens[q].type != ')') return false;
+  CHECK(p, q, check, check == 0 && i < q);
+  // CHECK_PARENTHESIS_MATCH(check);
+  return true;
+}
 
-    int i;
-    for (i = 0; i < token_count; i++) {
-      // printf("Get token: \033[1;32;45m%s\033[0m\n", tokens[i].str);
-      if (tokens[i].type == '-' &&
-          (i == 0 ||
-           (tokens[i - 1].type != TK_NUMBER && tokens[i - 1].type != TK_HEX &&
-            tokens[i - 1].type != TK_REG && tokens[i - 1].type != ')'))) {
-        tokens[i].type = TK_NEG;
-        tokens[i].priority = 6;
-      }
-      if (tokens[i].type == '*' &&
-          (i == 0 ||
-           (tokens[i - 1].type != TK_NUMBER && tokens[i - 1].type != TK_HEX &&
-            tokens[i - 1].type != TK_REG && tokens[i - 1].type != ')'))) {
-        tokens[i].type = TK_DEREF;
-        tokens[i].priority = 6;
-      }
+int find_next_parenthesis(int pos);
+
+int find_dominant_op(int p, int q) {
+  int start = p;
+  int end = q;
+  int dominant_op = -1;
+  int min_priority = INT8_MAX;
+  while (start <= end) {
+    if (tokens[start].type == '(') {
+      start = find_next_parenthesis(start) + 1;
+      continue;
+    } else if (tokens[start].priority <= min_priority) {
+      dominant_op = start;
+      min_priority = tokens[start].priority;
     }
-
-    uint32_t res = eval(0, token_count - 1);
-    return res;
+    start++;
   }
+  return dominant_op;
+}
+
+int find_next_parenthesis(int pos) {
+  int count = 0;
+  for (int i = pos; i < token_count; i++) {
+    UPDATE_PARENTHESIS(count, tokens, i);
+    if (count == 0) return i;
+  }
+  return -1;
 }
 
 #include <stdio.h>
@@ -305,7 +337,6 @@ uint32_t eval(int p, int q) {
       case '*':
         return val1 * val2;
       case '/':
-        // TODO: Handle division by zero error
         if (val2 == 0) {
           printf("\033[1;31mDivision by zero error!\033[0m\n");
           return -1;
@@ -351,55 +382,33 @@ uint32_t eval(int p, int q) {
   }
 }
 
-// // TODO: check_parentheses, check_subexpr, find_next_parentheses are similar
-/*
- * Check if the parentheses are legal
- * One-to-one match
- */
-bool check_parentheses(int p, int q) {
-  int flag = 0;
-  CHECK(p, q, flag, flag < 0);
-  // CHECK_PARENTHESIS_MATCH(flag);
-  return true;
-}
+word_t expr(char *e, bool *success) {
+  if (!make_token(e)) {
+    *success = false;
+    return 0;
+  } else {
+    *success = true;
 
-/*
- * Eliminating redundant brackets
- */
-bool check_subexpr(int p, int q) {
-  int check = 0;
-  if (tokens[p].type != '(' || tokens[q].type != ')') return false;
-  CHECK(p, q, check, check == 0 && i < q);
-  // CHECK_PARENTHESIS_MATCH(check);
-  return true;
-}
-
-int find_next_parenthesis(int pos);
-
-int find_dominant_op(int p, int q) {
-  int start = p;
-  int end = q;
-  int dominant_op = -1;
-  int min_priority = INT8_MAX;
-  while (start <= end) {
-    if (tokens[start].type == '(') {
-      start = find_next_parenthesis(start) + 1;
-      continue;
-    } else if (tokens[start].priority <= min_priority) {
-      dominant_op = start;
-      min_priority = tokens[start].priority;
+    int i;
+    for (i = 0; i < token_count; i++) {
+      // printf("Get token: \033[1;32;45m%s\033[0m\n", tokens[i].str);
+      if (tokens[i].type == '-' &&
+          (i == 0 ||
+           (tokens[i - 1].type != TK_NUMBER && tokens[i - 1].type != TK_HEX &&
+            tokens[i - 1].type != TK_REG && tokens[i - 1].type != ')'))) {
+        tokens[i].type = TK_NEG;
+        tokens[i].priority = 6;
+      }
+      if (tokens[i].type == '*' &&
+          (i == 0 ||
+           (tokens[i - 1].type != TK_NUMBER && tokens[i - 1].type != TK_HEX &&
+            tokens[i - 1].type != TK_REG && tokens[i - 1].type != ')'))) {
+        tokens[i].type = TK_DEREF;
+        tokens[i].priority = 6;
+      }
     }
-    start++;
-  }
-  return dominant_op;
-}
 
-int find_next_parenthesis(int pos) {
-  int count = 0;
-  for (int i = pos; i < token_count; i++) {
-    UPDATE_PARENTHESIS(count, tokens, i);
-    if (count == 0) return i;
+    uint32_t res = eval(0, token_count - 1);
+    return res;
   }
-  return -1;
 }
-

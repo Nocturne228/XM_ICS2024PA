@@ -141,12 +141,6 @@ static int decode_exec(Decode *s) {
   return 0;
 }
 
-int isa_exec_once(Decode *s) {
-  s->isa.inst = inst_fetch(&s->snpc, 4);
-  IFDEF(CONFIG_ITRACE, trace_inst(s->pc, s->isa.inst));
-  return decode_exec(s);
-}
-
 static int32_t high_mul_i32(int32_t a, int32_t b) {
   const int64_t result = (int64_t)a * (int64_t)b;
   return (int32_t)(result >> 32);
@@ -176,3 +170,10 @@ static inline word_t rem_result(word_t a, word_t b, bool is_signed) {
   if (is_signed && b == -1) return 0;
   return is_signed ? (sword_t)a % (sword_t)b : a % b;
 }
+
+int isa_exec_once(Decode *s) {
+  s->isa.inst = inst_fetch(&s->snpc, 4);
+  IFDEF(CONFIG_ITRACE, trace_inst(s->pc, s->isa.inst));
+  return decode_exec(s);
+}
+
