@@ -6,11 +6,14 @@
 #if !defined(__ISA_NATIVE__) || defined(__NATIVE_USE_KLIB__)
 #define _BUF_SIZE 1024
 
-#define PRINTF_IMPL(expr) \
-  va_list ap;             \
-  va_start(ap, fmt);      \
-  int ret = (expr);    \
-  va_end(ap);
+#define PRINTF_IMPL(expr, ret)      \
+  do {                              \
+    va_list ap;                     \
+    va_start(ap, fmt);              \
+    ret = (expr);                   \
+    va_end(ap);                     \
+  } while (0)
+
 
 #define do_div(n, base)                         \
   ({                                            \
@@ -29,53 +32,75 @@
 #define SPECIAL 32 /* 0x */
 #define LARGE 64   /* use 'ABCDEF' instead of 'abcdef' */
 
-static char *number(char *str, unsigned long long num, int base, int size,
-                    int precision, int type);
-static int skip_atoi(const char **s);
-int _vsprintf(char *out, const char *fmt, va_list ap);
-
-/**
- * @brief Print formatted output to stdout
- *
- * This function prints formatted output to stdout using the putch function.
- * It supports various format specifiers including:
- * - %c for characters
- * - %s for strings
- * - %d, %i for signed integers
- * - %u for unsigned integers
- * - %x, %X for hexadecimal numbers
- * - %o for octal numbers
- * - %p for pointers
- *
- * @param fmt Format string containing text and format specifiers
- * @param ... Variable arguments corresponding to format specifiers
- * @return Number of characters printed, or negative value on error
- */
-int printf(const char *fmt, ...) {
-  char _buf[_BUF_SIZE];
-  PRINTF_IMPL(_vsprintf(_buf, fmt, ap))
-  
-  for (int i = 0; i < ret; i++) {
-    putch(_buf[i]);
+void puts(const char *buf, int len) {
+  for (int i = 0; i < len; i++) {
+    putch(buf[i]);
   }
-  return ret;
 }
 
-int vsprintf(char *out, const char *fmt, va_list ap) {
-  return _vsprintf(out, fmt, ap);
+static int skip_atoi(const char **s) {
+  int i, c;
+  for (i = 0; '0' <= (c = **s) && c <= '9'; ++*s) {
+    i = i * 10 + c - '0';
+  }
+  return i;
 }
 
-int sprintf(char *out, const char *fmt, ...) {
-  PRINTF_IMPL(_vsprintf(out, fmt, ap));
-  return ret;
-}
+static char *number(char *str, unsigned long long num, int base, int size, int precision, int type) {
+  char c, sign, tmp[66];
+  const char *digits = "0123456789abcdefghijklmnopqrstuvwxyz";
+  int i;
 
-int snprintf(char *out, size_t n, const char *fmt, ...) {
-  panic("Not implemented");
-}
-
-int vsnprintf(char *out, size_t n, const char *fmt, va_list ap) {
-  panic("Not implemented");
+  if (type & LARGE) digits = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+  if (type & LEFT) type &= ~ZEROPAD;
+  if (base < 2 || base > 36) return 0;
+  c = (type & ZEROPAD) ? '0' : ' ';
+  sign = 0;
+  if (type & SIGN) {
+    if ((signed long long)num < 0) {
+      sign = '-';
+      num = -(signed long long)num;
+      size--;
+    } else if (type & PLUS) {
+      sign = '+';
+      size--;
+    } else if (type & SPACE) {
+      sign = ' ';
+      size--;
+    }
+  }
+  if (type & SPECIAL) {
+    if (base == 16)
+      size -= 2;
+    else if (base == 8)
+      size--;
+  }
+  i = 0;
+  if (num == 0)
+    tmp[i++] = '0';
+  else
+    while (num != 0) {
+      tmp[i++] = digits[do_div(num, base)];
+    }
+  if (i > precision) precision = i;
+  size -= precision;
+  if (!(type & (ZEROPAD + LEFT)))
+    while (size-- > 0) *str++ = ' ';
+  if (sign) *str++ = sign;
+  if (type & SPECIAL) {
+    if (base == 8)
+      *str++ = '0';
+    else if (base == 16) {
+      *str++ = '0';
+      *str++ = digits[33];
+    }
+  }
+  if (!(type & LEFT))
+    while (size-- > 0) *str++ = c;
+  while (i < precision--) *str++ = '0';
+  while (i-- > 0) *str++ = tmp[i];
+  while (size-- > 0) *str++ = ' ';
+  return str;
 }
 
 int _vsprintf(char *out, const char *fmt, va_list ap) {
@@ -255,68 +280,31 @@ int _vsprintf(char *out, const char *fmt, va_list ap) {
   return str - out;
 }
 
-static int skip_atoi(const char **s) {
-  int i, c;
-  for (i = 0; '0' <= (c = **s) && c <= '9'; ++*s) i = i * 10 + c - '0';
-  return i;
+int printf(const char *fmt, ...) {
+  char _buf[_BUF_SIZE];
+  int ret = 0;
+  PRINTF_IMPL(_vsprintf(_buf, fmt, ap), ret);
+  
+  puts(_buf, ret);
+  return ret;
 }
 
-static char *number(char *str, unsigned long long num, int base, int size,
-                    int precision, int type) {
-  char c, sign, tmp[66];
-  const char *digits = "0123456789abcdefghijklmnopqrstuvwxyz";
-  int i;
+int vsprintf(char *out, const char *fmt, va_list ap) {
+  return _vsprintf(out, fmt, ap);
+}
 
-  if (type & LARGE) digits = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-  if (type & LEFT) type &= ~ZEROPAD;
-  if (base < 2 || base > 36) return 0;
-  c = (type & ZEROPAD) ? '0' : ' ';
-  sign = 0;
-  if (type & SIGN) {
-    if ((signed long long)num < 0) {
-      sign = '-';
-      num = -(signed long long)num;
-      size--;
-    } else if (type & PLUS) {
-      sign = '+';
-      size--;
-    } else if (type & SPACE) {
-      sign = ' ';
-      size--;
-    }
-  }
-  if (type & SPECIAL) {
-    if (base == 16)
-      size -= 2;
-    else if (base == 8)
-      size--;
-  }
-  i = 0;
-  if (num == 0)
-    tmp[i++] = '0';
-  else
-    while (num != 0) {
-      tmp[i++] = digits[do_div(num, base)];
-    }
-  if (i > precision) precision = i;
-  size -= precision;
-  if (!(type & (ZEROPAD + LEFT)))
-    while (size-- > 0) *str++ = ' ';
-  if (sign) *str++ = sign;
-  if (type & SPECIAL) {
-    if (base == 8)
-      *str++ = '0';
-    else if (base == 16) {
-      *str++ = '0';
-      *str++ = digits[33];
-    }
-  }
-  if (!(type & LEFT))
-    while (size-- > 0) *str++ = c;
-  while (i < precision--) *str++ = '0';
-  while (i-- > 0) *str++ = tmp[i];
-  while (size-- > 0) *str++ = ' ';
-  return str;
+int sprintf(char *out, const char *fmt, ...) {
+  int ret = 0;
+  PRINTF_IMPL(_vsprintf(out, fmt, ap), ret);
+  return ret;
+}
+
+int snprintf(char *out, size_t n, const char *fmt, ...) {
+  panic("Not implemented");
+}
+
+int vsnprintf(char *out, size_t n, const char *fmt, va_list ap) {
+  panic("Not implemented");
 }
 
 #endif
